@@ -1,0 +1,20 @@
+{
+    "name": "osprey",
+    "version-string": "0.1",
+    "dependencies": [
+        "glfw3",
+        "glm",
+        "tinyobjloader",
+        "stb",
+        "tinygltf",
+        "nlohmann-json",
+        "ktx",
+        {
+            "name": "imgui",
+            "features": [ "glfw-binding", "vulkan-binding" ]
+        },
+        "imguizmo",
+        "nativefiledialog-extended",
+        "yaml-cpp"
+    ]
+}
