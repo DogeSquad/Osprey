@@ -15,6 +15,7 @@
 #include <nfd.h>
 #include <yaml-cpp/yaml.h>
 
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
@@ -36,6 +37,7 @@ import vulkan_hpp;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 #include <glm/gtx/hash.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -43,6 +45,7 @@ import vulkan_hpp;
 constexpr uint32_t WIDTH                = 800;
 constexpr uint32_t HEIGHT               = 600;
 constexpr int      MAX_FRAMES_IN_FLIGHT = 2;
+constexpr glm::vec3 UP_DIR{ 0.0f, 1.0f, 0.0f };
 
 const std::vector<char const *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
@@ -63,19 +66,28 @@ struct OrbitCamera
 	float minDistance = 1.0f;
 	float maxPitch    = glm::radians(89.0f);
 
-	glm::mat4 getViewMatrix() const
+	glm::mat4 proj;
+	glm::mat4 projFlipped;
+
+	void updateProjectionMatrx(float width, float height)
 	{
-		float cp = cosf(pitch);
-		float sp = sinf(pitch);
-		float cy = cosf(yaw);
-		float sy = sinf(yaw);
+		proj = glm::perspective(glm::radians(45.0f), static_cast<float>(width) / static_cast<float>(height), 0.1f, 30.0f);
+		projFlipped = glm::mat4(proj);
+		projFlipped[1][1] *= -1;
+	}
 
-		glm::vec3 eye;
-		eye.x = target.x + distance * cp * cy;
-		eye.y = target.y + distance * cp * sy;
-		eye.z = target.z + distance * sp;
+	glm::mat4 getProjectionMatrix(bool y_flipped = true)
+	{
+		return y_flipped ? projFlipped : proj;
+	}
 
-		return glm::lookAt(eye, target, glm::vec3(0, 0, 1));
+	glm::mat4 getViewMatrix() const {
+		glm::vec3 eye{ cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw) };
+		eye *= distance;
+		eye += target;
+
+
+		return glm::lookAt(eye, target, UP_DIR);
 	}
 };
 
@@ -90,7 +102,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
 	if (button == GLFW_MOUSE_BUTTON_LEFT)
 		leftDown = (action == GLFW_PRESS);
-
+		
 	if (button == GLFW_MOUSE_BUTTON_RIGHT)
 		rightDown = (action == GLFW_PRESS);
 
@@ -101,34 +113,31 @@ void cursorCallback(GLFWwindow *window, double xpos, double ypos)
 {
 	double dx = xpos - lastX;
 	double dy = ypos - lastY;
-	lastX     = xpos;
-	lastY     = ypos;
+	lastX = xpos;
+	lastY = ypos;
 
 	float rotateSpeed = 0.005f;
-	float panSpeed    = 0.01f;
+	float panSpeed = 0.01f;
 
-	if (leftDown)
-	{
-		camera.yaw += dx * rotateSpeed;
-		camera.pitch -= dy * rotateSpeed;
+	// Orbit rotation
+	if (leftDown) {
+		camera.yaw += (float)dx * rotateSpeed;
+		camera.pitch -= (float)dy * rotateSpeed;
 
-		// clamp pitch
-		if (camera.pitch > camera.maxPitch)
-			camera.pitch = camera.maxPitch;
-		if (camera.pitch < -camera.maxPitch)
-			camera.pitch = -camera.maxPitch;
+		if (camera.pitch > camera.maxPitch)  camera.pitch = camera.maxPitch;
+		if (camera.pitch < -camera.maxPitch) camera.pitch = -camera.maxPitch;
 	}
 
-    if (rightDown)
-	{
-		// Forward in Z-up is projection of view direction onto XY plane
+	// Pan on XZ plane (Y-up)
+	if (rightDown) {
 		glm::vec3 forward = glm::normalize(glm::vec3{
-		    cosf(camera.yaw), sinf(camera.yaw), 0.0f});
+			sinf(camera.yaw), 0, cosf(camera.yaw)
+			});
 
-		glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 0, 1)));
+		glm::vec3 right = glm::normalize(glm::cross(forward, UP_DIR));
 
-		camera.target += right * (float) dx * panSpeed;
-		camera.target -= forward * (float) dy * panSpeed;
+		camera.target -= right * (float)dx * panSpeed;
+		camera.target += forward * (float)dy * panSpeed;
 	}
 }
 
@@ -375,19 +384,11 @@ class HelloTriangleApplication
 
 		////execute a gpu command to upload imgui font textures
 		ImGui_ImplVulkan_CreateFontsTexture();
-
-		////clear font textures from cpu data
-		//ImGui_ImplVulkan_DestroyFontUploadObjects();
-
-		////add the destroy the imgui created structures
-		//_mainDeletionQueue.push_function([=]() {
-
-		//	vkDestroyDescriptorPool(_device, imguiPool, nullptr);
-		//	ImGui_ImplVulkan_Shutdown();
 	}
 
 	void mainLoop()
 	{
+		camera.updateProjectionMatrx(swapChainExtent.width, swapChainExtent.height);
 		while (!glfwWindowShouldClose(window))
 		{
 			glfwPollEvents();
@@ -397,6 +398,11 @@ class HelloTriangleApplication
 
 			ImGui::NewFrame();
 			ImGuizmo::BeginFrame();
+
+			ImGuizmo::SetRect(0, 0, swapChainExtent.width, swapChainExtent.height);
+
+			float* dummyMat = (float*)glm::value_ptr(glm::identity<glm::mat4>());
+			ImGuizmo::Manipulate(glm::value_ptr(camera.getViewMatrix()), glm::value_ptr(camera.getProjectionMatrix(false)), ImGuizmo::OPERATION::ROTATE_X, ImGuizmo::MODE::LOCAL, dummyMat);
 
 			if (ImGui::BeginMainMenuBar())
 			{
@@ -435,7 +441,6 @@ class HelloTriangleApplication
 
 				ImGui::EndMainMenuBar();
 			}
-
 
 			ImGui::Render();
 
@@ -479,6 +484,8 @@ class HelloTriangleApplication
 		createImageViews();
 		createColorResources();
 		createDepthResources();
+
+		camera.updateProjectionMatrx(swapChainExtent.width, swapChainExtent.height);
 	}
 
 	void createInstance()
@@ -1014,18 +1021,18 @@ class HelloTriangleApplication
 		{
 			float thetaPercent = i / float(numNodes);
 			float x			   = 2.0f * thetaPercent - 1.0f;
-			float z            = 0.2f * glm::sin(30.0f * thetaPercent);
-			nodePositions.push_back({x, 0.0, z});
+			float y            = 0.2f * glm::sin(30.0f * thetaPercent);
+			nodePositions.push_back({x, y, 0.0});
 
 			float dx = 2.0f;
-			float dz = 6.0f * glm::cos(30 * thetaPercent);
-			nodeForwards.push_back(glm::normalize(glm::vec3{dx, 0.0, dz}));
+			float dy = 6.0f * glm::cos(30.0f * thetaPercent);
+			nodeForwards.push_back(glm::normalize(glm::vec3{dx, dy, 0.0f}));
 
-			nodeUps.push_back(glm::rotate(nodeForwards[i], -glm::half_pi<float>(), glm::vec3(0.0, 1.0, 0.0)));
+			nodeUps.push_back(glm::rotate(nodeForwards[i], -glm::half_pi<float>(), { 0.0f, 0.0, 1.0 }));
 		}
 
 
-		float tubeRadius      = 0.001;
+		float tubeRadius      = 0.01;
 		int   verticesPerNode = 15;
 		int   i               = 0;
 		for (; i < nodePositions.size(); i++)
@@ -1036,7 +1043,7 @@ class HelloTriangleApplication
 				float radians = (v / (float)verticesPerNode) * glm::two_pi<float>();
 
 				glm::vec3 vertexPosition(nodePositions[i]);
-				vertexPosition.y += tubeRadius * glm::cos(glm::half_pi<float>() + radians);
+				vertexPosition.z += tubeRadius * glm::cos(glm::half_pi<float>() + radians);
 				vertexPosition += tubeRadius * nodeUps[i] * glm::sin(glm::half_pi<float>() + radians);
 				
 				vertices.push_back({vertexPosition, tubeColor, {0.0, 0.0}, glm::normalize(vertexPosition - nodePositions[i])});
@@ -1059,7 +1066,7 @@ class HelloTriangleApplication
 		{
 			glm::vec3 vertPos            = vertices[i].pos;
 			glm::vec3 backCross          = glm::cross(vertices[i - verticesPerNode].pos - vertPos, vertices[i - 1].pos - vertPos);
-			glm::vec3 forwardCross       = glm::cross(vertices[i + verticesPerNode].pos - vertPos, vertices[i - 1].pos - vertPos);
+			glm::vec3 forwardCross       = glm::cross(vertices[i + verticesPerNode].pos - vertPos, vertices[i + 1].pos - vertPos);
 			glm::vec3 interpolatedNormal = glm::mix(backCross, forwardCross, 0.5f);
 			vertices[i].normal           = glm::normalize(interpolatedNormal);
 		}
@@ -1400,10 +1407,9 @@ class HelloTriangleApplication
 		float time        = std::chrono::duration<float>(currentTime - startTime).count();
 
 		UniformBufferObject ubo{};
-		ubo.model = rotate(glm::mat4(1.0f), rotation, glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.view = camera.getViewMatrix();        // lookAt(glm::vec3(0.0f, 2.0f + zoom, 2.0f + zoom), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.proj  = glm::perspective(glm::radians(45.0f), static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 30.0f);
-		ubo.proj[1][1] *= -1;
+		ubo.model = glm::identity<glm::mat4>();
+		ubo.view = camera.getViewMatrix();
+		ubo.proj = camera.getProjectionMatrix();
 		ubo.lightDir = glm::normalize(glm::vec3(0.0, 0.3, 1.0));
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
