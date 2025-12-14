@@ -3,6 +3,7 @@ cmake_minimum_required (VERSION 3.29)
 project (Osprey)
 set(${SHADER_SLANG_TARGET} Shaders)
 
+
 find_package (glfw3 REQUIRED)
 find_package (glm REQUIRED)
 find_package (Vulkan REQUIRED)
@@ -35,8 +36,18 @@ target_compile_definitions(VulkanCppModule
 )
 
 
+file(GLOB_RECURSE SRC_FILES "src/*.h" "src/*.cpp")
+file(GLOB_RECURSE SHADER_FILES "shaders/*.slang")
 
-add_executable (${PROJECT_NAME} src/renderer.cpp)
+set_source_files_properties(${SHADER_FILES} PROPERTIES LANGUAGE SLANG)
+source_group(
+    TREE "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+    PREFIX "Shaders"
+    FILES ${SHADER_FILES}
+)
+
+
+add_executable(${PROJECT_NAME} ${SRC_FILES} ${SHADER_FILES})
 
 
 set_target_properties (${PROJECT_NAME} PROPERTIES
@@ -44,31 +55,13 @@ RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJECT_NAME})
 set_target_properties (${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries (${PROJECT_NAME} Vulkan::cppm glfw glm::glm imgui::imgui imguizmo::imguizmo yaml-cpp::yaml-cpp nfd::nfd)
 target_include_directories (${PROJECT_NAME} PRIVATE ${STB_INCLUDEDIR})
+target_include_directories (${PROJECT_NAME} PRIVATE src)
 
 if(WIN32)
     if(${CMAKE_GENERATOR} MATCHES "Visual Studio.*")
         set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/${PROJECT_NAME}")
     endif()
 endif()
-
-# add_library(imgui STATIC)
-
-# target_include_directories(imgui PUBLIC imgui)
-
-# target_sources(imgui PRIVATE 
-#   imgui/imgui.h
-#   imgui/imgui.cpp
-
-#   imgui/imgui_demo.cpp
-#   imgui/imgui_draw.cpp
-#   imgui/imgui_widgets.cpp
-#   imgui/imgui_tables.cpp
-#   imgui/imgui_impl_vulkan.cpp
-#   imgui/imgui_impl_glfw.cpp
-# )
-
-# target_link_libraries(imgui PUBLIC Vulkan::cppm glfw)
-
 
 
 function (add_slang_shader_target TARGET)
