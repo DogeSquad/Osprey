@@ -48,6 +48,7 @@ import vulkan_hpp;
 #include "constants.h"
 #include "camera.h"
 #include "track.h"
+#include "track_mesh.h"
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -161,13 +162,6 @@ private:
 	vk::raii::DeviceMemory depthImageMemory = nullptr;
 	vk::raii::ImageView    depthImageView = nullptr;
 
-	std::vector<Vertex>    vertices;
-	std::vector<uint32_t>  indices;
-	vk::raii::Buffer       vertexBuffer = nullptr;
-	vk::raii::DeviceMemory vertexBufferMemory = nullptr;
-	vk::raii::Buffer       indexBuffer = nullptr;
-	vk::raii::DeviceMemory indexBufferMemory = nullptr;
-
 	std::vector<vk::raii::Buffer>       uniformBuffers;
 	std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
 	std::vector<void*>                 uniformBuffersMapped;
@@ -197,6 +191,8 @@ private:
 		vk::KHRCreateRenderpass2ExtensionName };
 
 	osp::Camera camera;
+	osp::Track track;
+	std::unique_ptr<osp::TrackMesh> trackMesh;
 
 	void initWindow()
 	{
@@ -277,9 +273,7 @@ private:
 		createCommandPool();
 		createColorResources();
 		createDepthResources();
-		loadTestVertices();
-		createVertexBuffer();
-		createIndexBuffer();
+		//createTrack();
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
@@ -384,10 +378,9 @@ private:
 						args.filterCount = 1;
 						nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 						if (result == NFD_OKAY) {
-							osp::Track track = osp::Track();
+							track = osp::Track();
 							track.load(std::string(outPath));
-							std::cout << glm::to_string(track.curve.getControlPointNormalInterpolated(0)) << std::endl;
-							std::cout << glm::to_string(track.curve.evaluate(1.5)) << std::endl;
+							createTrack();
 							NFD_FreePathU8(outPath);
 						}
 					}
@@ -972,104 +965,11 @@ private:
 		endSingleTimeCommands(*commandBuffer);
 	}
 
-
-	void loadTestVertices()
+	void createTrack()
 	{
-		// An example of generating tube vertices aligned along the x-axis. NOTE: Calculations rely heavily on predefined function and it being only defined along X.
-		glm::vec3 tubeColor{ 170, 50, 50 };
-		tubeColor /= 256.0;
-		int                    numNodes = 350;
-		std::vector<glm::vec3> nodePositions;
-		std::vector<glm::vec3> nodeForwards;
-		std::vector<glm::vec3> nodeUps;
-		nodePositions.reserve(numNodes);
-		nodeUps.reserve(numNodes);
-		for (int i = 0; i < numNodes; i++)
-		{
-			float thetaPercent = i / float(numNodes);
-			float x = 2.0f * thetaPercent - 1.0f;
-			float y = 0.2f * glm::sin(30.0f * thetaPercent);
-			nodePositions.push_back({ x, y, 0.0 });
-
-			float dx = 2.0f;
-			float dy = 6.0f * glm::cos(30.0f * thetaPercent);
-			nodeForwards.push_back(glm::normalize(glm::vec3{ dx, dy, 0.0f }));
-
-			nodeUps.push_back(glm::rotate(nodeForwards[i], -glm::half_pi<float>(), { 0.0f, 0.0, 1.0 }));
-		}
-
-
-		float tubeRadius = 0.01;
-		int   verticesPerNode = 15;
-		int   i = 0;
-		for (; i < nodePositions.size(); i++)
-		{
-			float percentAlong = i / float(nodePositions.size());
-			for (int v = 0; v < verticesPerNode; v++)
-			{
-				float radians = (v / (float)verticesPerNode) * glm::two_pi<float>();
-
-				glm::vec3 vertexPosition(nodePositions[i]);
-				vertexPosition.z += tubeRadius * glm::cos(glm::half_pi<float>() + radians);
-				vertexPosition += tubeRadius * nodeUps[i] * glm::sin(glm::half_pi<float>() + radians);
-
-				vertices.push_back({ vertexPosition, tubeColor, {0.0, 0.0}, glm::normalize(vertexPosition - nodePositions[i]) });
-
-				// We do not index the last ring of vertices.
-				if (i == nodePositions.size() - 1)
-					continue;
-
-				indices.push_back(i * verticesPerNode + v);
-				indices.push_back(i * verticesPerNode + ((v + 1) % verticesPerNode));
-				indices.push_back((i + 1) * verticesPerNode + ((v + 1) % verticesPerNode));
-
-				indices.push_back((i + 1) * verticesPerNode + ((v + 1) % verticesPerNode));
-				indices.push_back((i + 1) * verticesPerNode + v);
-				indices.push_back(i * verticesPerNode + v);
-			}
-		}
-
-		for (i = verticesPerNode; i < nodePositions.size() - verticesPerNode; i++)
-		{
-			glm::vec3 vertPos = vertices[i].pos;
-			glm::vec3 backCross = glm::cross(vertices[i - verticesPerNode].pos - vertPos, vertices[i - 1].pos - vertPos);
-			glm::vec3 forwardCross = glm::cross(vertices[i + verticesPerNode].pos - vertPos, vertices[i + 1].pos - vertPos);
-			glm::vec3 interpolatedNormal = glm::mix(backCross, forwardCross, 0.5f);
-			vertices[i].normal = glm::normalize(interpolatedNormal);
-		}
-	}
-
-	void createVertexBuffer()
-	{
-		vk::DeviceSize         bufferSize = sizeof(vertices[0]) * vertices.size();
-		vk::raii::Buffer       stagingBuffer({});
-		vk::raii::DeviceMemory stagingBufferMemory({});
-		createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
-
-		void* dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-		memcpy(dataStaging, vertices.data(), bufferSize);
-		stagingBufferMemory.unmapMemory();
-
-		createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, vertexBuffer, vertexBufferMemory);
-
-		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-	}
-
-	void createIndexBuffer()
-	{
-		vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-		vk::raii::Buffer       stagingBuffer({});
-		vk::raii::DeviceMemory stagingBufferMemory({});
-		createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
-
-		void* data = stagingBufferMemory.mapMemory(0, bufferSize);
-		memcpy(data, indices.data(), bufferSize);
-		stagingBufferMemory.unmapMemory();
-
-		createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, indexBuffer, indexBufferMemory);
-
-		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+		trackMesh = std::make_unique<osp::TrackMesh>(device, physicalDevice, queue, commandPool);
+		trackMesh->track = track;
+		trackMesh->generateMesh();
 	}
 
 	void createUniformBuffers()
@@ -1271,10 +1171,13 @@ private:
 		commandBuffers[currentFrame].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
 		commandBuffers[currentFrame].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
 		commandBuffers[currentFrame].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-		commandBuffers[currentFrame].bindVertexBuffers(0, *vertexBuffer, { 0 });
-		commandBuffers[currentFrame].bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint32);
-		commandBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
-		commandBuffers[currentFrame].drawIndexed(indices.size(), 1, 0, 0, 0);
+		if (trackMesh != nullptr && trackMesh->mesh.data.indices.size() > 0)
+		{
+			commandBuffers[currentFrame].bindVertexBuffers(0, *trackMesh->mesh.vertexBuffer.buffer, { 0 });
+			commandBuffers[currentFrame].bindIndexBuffer(*trackMesh->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
+			commandBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
+			commandBuffers[currentFrame].drawIndexed(trackMesh->mesh.data.indices.size(), 1, 0, 0, 0);
+		}
 		commandBuffers[currentFrame].endRendering();
 
 		drawImGui(commandBuffers[currentFrame], swapChainImageViews[imageIndex]);

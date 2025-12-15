@@ -7,6 +7,9 @@
 #include <glm/ext.hpp>
 #include <yaml-cpp/yaml.h>
 
+#include "mesh.h"
+#include "constants.h"
+
 namespace osp
 {
 struct PiecewiseLinearCurve 
@@ -76,17 +79,16 @@ struct PiecewiseLinearCurve
 
 	glm::vec3 evaluate(double u) 
 	{
-		// TODO: Add bounds handling
 		if (controlPoints.size() == 0) 
 		{
 			return glm::vec3(0.0, 0.0, 0.0);
 		}
 
-		if (u <= 0) 
+		if (u <= knots[0])
 		{
 			return controlPoints[0];
 		} 
-		else if (u >= length)
+		else if (u >= knots[controlPoints.size() - 1])
 		{
 			return controlPoints[controlPoints.size()-1];
 		}
@@ -109,10 +111,7 @@ struct Track
 {
 	PiecewiseLinearCurve curve;
 
-	Track() 
-	{
-
-	}
+	std::vector<double> roll;
 
 	void load(const std::string& path) 
 	{
@@ -130,12 +129,9 @@ struct Track
 				curve.controlPoints.push_back(glm::vec3(x, y, z));
 			}
 		}
+		roll = config["roll"].as<std::vector<double>>();
 		curve.calculateLength();
 		curve.calculateTangents();
-
-		//for (int i = 0; i < curve.knots.size(); i++) {
-		//	std::cout << curve.knots[i] << ": " << glm::to_string(curve.controlPoints[i]) << std::endl;
-		//}
 	}
 };
 
