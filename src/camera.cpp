@@ -6,7 +6,7 @@ void Camera::updateProj(GLFWwindow* window, float deltaTime)
 {
 	int width, height;
 	glfwGetWindowSize(window, &width, &height);
-	proj = glm::perspective(glm::radians(fov), static_cast<float>(width) / static_cast<float>(height), near, 40.0f);
+	proj = glm::perspective(glm::radians(fov), static_cast<float>(width) / static_cast<float>(height), near, 60.0f);
 	proj[1][1] *= -1;
 }
 

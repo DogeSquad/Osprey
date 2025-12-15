@@ -43,7 +43,7 @@ struct TrackMesh
 		mesh.data.vertices.clear();
 		mesh.data.indices.clear();
 
-		glm::vec3 tubeColor{ 170, 50, 50 };
+		glm::vec3 tubeColor{ 0, 170, 0 };
 		tubeColor /= 256.0;
 		float tubeRadius = 0.01f;
 		int   verticesPerRing = 15;
@@ -72,44 +72,8 @@ struct TrackMesh
 			glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
 			glm::vec3 up = rotation * -glm::normalize(glm::cross(forward, right));
 
-			//glm::vec3 forward = glm::normalize(nodeTangents[i]);
-
-			//if (first)
-			//{
-			//	glm::vec3 upGuess = UP_DIR;
-			//	if (glm::abs(glm::dot(upGuess, forward)) > 0.9f)
-			//		upGuess = glm::vec3(1, 0, 0);
-
-			//	prevRight = glm::normalize(glm::cross(forward, upGuess));
-			//	prevUp = glm::cross(prevRight, forward);
-			//	transportRight = glm::normalize(glm::cross(forward, upGuess));
-			//	transportUp = glm::cross(transportRight, forward);
-			//	first = false;
-			//}
-			//else
-			//{
-			//	// Parallel transport
-			//	glm::vec3 axis = glm::cross(prevForward, forward);
-			//	float len = glm::length(axis);
-
-			//	if (len > 1e-5f)
-			//	{
-			//		axis /= len;
-			//		float angle = glm::acos(glm::clamp(glm::dot(prevForward, forward), -1.0f, 1.0f));
-			//		transportRight = glm::rotate(transportRight, angle, axis);
-			//		transportUp = glm::cross(transportRight, forward);
-			//	}
-			//}
-			//float roll = glm::radians((float)nodeRoll[i]);
-
-			//glm::vec3 right = glm::rotate(transportRight, roll, forward);
-			//glm::vec3 up = glm::rotate(transportUp, roll, forward);
-			//prevForward = forward;
-			//transportRight = glm::normalize(transportRight);
-			//transportUp = glm::normalize(glm::cross(forward, transportRight));
-
 			// Construct Geometry
-			vertices.push_back({ nodePositions[i] - up * 0.05, {1.0, 0.0, 0.0}, {0.0, 0.0}, -up });
+			vertices.push_back({ nodePositions[i] - up * 0.1, tubeColor, {0.0, 0.0}, -up });
 			vertices.push_back({ nodePositions[i] + right * 0.1, tubeColor, {0.0, 0.0}, up });
 			vertices.push_back({ nodePositions[i] - right * 0.1, tubeColor, {0.0, 0.0}, up });
 

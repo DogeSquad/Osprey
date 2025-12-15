@@ -384,8 +384,10 @@ private:
 			ImGui_ImplVulkan_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
-
+			ImGuizmo::BeginFrame();
 			camera.updateView(window, 0.0f);
+
+			ImGuizmo::SetRect(0, 0, swapChainExtent.width, swapChainExtent.height);
 
 			if (ImGui::BeginMainMenuBar())
 			{
@@ -697,7 +699,7 @@ private:
 			.cullMode = vk::CullModeFlagBits::eNone,
 			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False };
-		rasterizer.lineWidth = 0.0001f;
+		rasterizer.lineWidth = 0.1f;
 		vk::PipelineMultisampleStateCreateInfo multisampling{
 			.rasterizationSamples = msaaSamples,
 			.sampleShadingEnable = vk::False };
