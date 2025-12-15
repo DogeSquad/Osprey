@@ -194,6 +194,8 @@ private:
 	osp::Track track;
 	std::unique_ptr<osp::TrackMesh> trackMesh;
 
+	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\track1.yaml";
+
 	void initWindow()
 	{
 		glfwInit();
@@ -240,9 +242,14 @@ private:
 	}
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 	{
+		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) 
 		{
 			glfwSetWindowShouldClose(window, true);
+		}
+		if (key == GLFW_KEY_F5 && action == GLFW_PRESS)
+		{
+			app->loadTrack(app->currentTrackFilePath);
 		}
 		if (key == GLFW_KEY_F1 && action == GLFW_PRESS) {
 			if (glfwGetWindowAttrib(window, GLFW_MAXIMIZED)) 
@@ -340,6 +347,21 @@ private:
 		ImGui_ImplVulkan_CreateFontsTexture();
 	}
 
+	void loadTrack(std::string filePath)
+	{
+		if (filePath.empty())
+		{
+			return;
+		}
+		if (currentTrackFilePath != filePath)
+		{
+			currentTrackFilePath = filePath; // TODO: Assumes that it is valid
+		}
+		track = osp::Track();
+		track.load(std::string(filePath));
+		createTrack();
+	}
+
 	void initWorld() 
 	{
 		camera = osp::Camera();
@@ -378,11 +400,9 @@ private:
 						args.filterCount = 1;
 						nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 						if (result == NFD_OKAY) {
-							track = osp::Track();
-							track.load(std::string(outPath));
-							createTrack();
-							NFD_FreePathU8(outPath);
+							loadTrack(outPath);
 						}
+						NFD_FreePathU8(outPath);
 					}
 					ImGui::Separator();
 					if (ImGui::MenuItem("Exit"))
@@ -673,8 +693,8 @@ private:
 		vk::PipelineRasterizationStateCreateInfo rasterizer{
 			.depthClampEnable = vk::False,
 			.rasterizerDiscardEnable = vk::False,
-			.polygonMode = vk::PolygonMode::eFill,
-			.cullMode = vk::CullModeFlagBits::eBack,
+			.polygonMode = vk::PolygonMode::eLine,
+			.cullMode = vk::CullModeFlagBits::eNone,
 			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False };
 		rasterizer.lineWidth = 0.0001f;
@@ -967,6 +987,7 @@ private:
 
 	void createTrack()
 	{
+		device.waitIdle();
 		trackMesh = std::make_unique<osp::TrackMesh>(device, physicalDevice, queue, commandPool);
 		trackMesh->track = track;
 		trackMesh->generateMesh();
