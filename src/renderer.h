@@ -190,9 +190,14 @@ private:
 		vk::KHRSynchronization2ExtensionName,
 		vk::KHRCreateRenderpass2ExtensionName };
 
+	glm::vec2 screenCursorPos = { 0.0f, 0.0f };
+	uint32_t lastHoveredControlPointIndex = 0;
+	bool isShift;
+
 	osp::Camera camera;
 	osp::Track track;
 	std::unique_ptr<osp::TrackMesh> trackMesh;
+	std::unique_ptr<osp::Mesh> groundGridMesh;
 
 	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\track1.yaml";
 
@@ -229,6 +234,9 @@ private:
 
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		app->getCamera()->onCursor(window, xpos, ypos);
+
+		app->screenCursorPos[0] = xpos;
+		app->screenCursorPos[1] = ypos;
 	}
 	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 	{
@@ -251,7 +259,8 @@ private:
 		{
 			app->loadTrack(app->currentTrackFilePath);
 		}
-		if (key == GLFW_KEY_F1 && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_F1 && action == GLFW_PRESS) 
+		{
 			if (glfwGetWindowAttrib(window, GLFW_MAXIMIZED)) 
 			{
 				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
@@ -262,6 +271,17 @@ private:
 				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 				glfwMaximizeWindow(window);
 			}
+		}
+		if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
+		{
+			app->camera.toggleViewMode();
+		}
+		if (key == GLFW_KEY_LEFT_SHIFT)
+		{
+			if (action == GLFW_PRESS)
+				app->isShift = true;
+			if (action == GLFW_RELEASE)
+				app->isShift = false;
 		}
 	}
 
@@ -281,6 +301,7 @@ private:
 		createColorResources();
 		createDepthResources();
 		//createTrack();
+		createGroundGrid();
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
@@ -364,7 +385,7 @@ private:
 
 	void initWorld() 
 	{
-		camera = osp::Camera();
+		camera = osp::Camera(window);
 
 		glfwSetCursorPosCallback(window, cursorPosCallback);
 		glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -388,7 +409,7 @@ private:
 			camera.updateView(window, 0.0f);
 
 			ImGuizmo::SetRect(0, 0, swapChainExtent.width, swapChainExtent.height);
-
+			showTranslateOnHover();
 			if (ImGui::BeginMainMenuBar())
 			{
 				if (ImGui::BeginMenu("File"))
@@ -623,6 +644,50 @@ private:
 		queue = vk::raii::Queue(device, queueIndex, 0);
 	}
 
+	void showTranslateOnHover()
+	{
+		std::vector<glm::vec3>& controlPoints = track.curve.controlPoints;
+		if (ImGuizmo::IsUsing())
+		{
+			glm::mat4 proj(camera.proj);
+			proj[1][1] *= -1;
+			glm::mat4 id = glm::identity<glm::mat4>();
+			id[3][0] = controlPoints[lastHoveredControlPointIndex][0];
+			id[3][1] = controlPoints[lastHoveredControlPointIndex][1];
+			id[3][2] = controlPoints[lastHoveredControlPointIndex][2];
+			glm::mat4 delta = glm::identity<glm::mat4>();
+			if (!isShift)
+			{
+				ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
+				controlPoints[lastHoveredControlPointIndex][0] += delta[3][0];
+				controlPoints[lastHoveredControlPointIndex][1] += delta[3][1];
+				controlPoints[lastHoveredControlPointIndex][2] += delta[3][2];
+			}
+			//else 
+			//{
+			//	ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::ROTATE_Z, ImGuizmo::MODE::LOCAL, glm::value_ptr(id), glm::value_ptr(delta));
+			//}
+			createTrack();
+			return;
+		}
+		for (int i = 0; i < controlPoints.size(); i++)
+		{
+			glm::vec2 screenPos = camera.projectPositionToScreen(controlPoints[i], static_cast<uint32_t>(swapChainExtent.width), static_cast<uint32_t>(swapChainExtent.height));
+			if (glm::distance(screenPos, screenCursorPos) < 50.0f)
+			{
+				glm::mat4 proj(camera.proj);
+				proj[1][1] *= -1;
+				glm::mat4 id = glm::identity<glm::mat4>();
+				id[3][0] = controlPoints[i][0];
+				id[3][1] = controlPoints[i][1];
+				id[3][2] = controlPoints[i][2];
+				ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
+				lastHoveredControlPointIndex = i;
+				break;
+			}
+		}
+	}
+
 	void createSwapChain()
 	{
 		auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
@@ -699,7 +764,7 @@ private:
 			.cullMode = vk::CullModeFlagBits::eNone,
 			.frontFace = vk::FrontFace::eCounterClockwise,
 			.depthBiasEnable = vk::False };
-		rasterizer.lineWidth = 0.1f;
+		rasterizer.lineWidth = 1.0f;
 		vk::PipelineMultisampleStateCreateInfo multisampling{
 			.rasterizationSamples = msaaSamples,
 			.sampleShadingEnable = vk::False };
@@ -721,7 +786,8 @@ private:
 
 		std::vector dynamicStates = {
 			vk::DynamicState::eViewport,
-			vk::DynamicState::eScissor };
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eDepthTestEnable};
 		vk::PipelineDynamicStateCreateInfo dynamicState{ .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()), .pDynamicStates = dynamicStates.data() };
 
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo{ .setLayoutCount = 1, .pSetLayouts = &*descriptorSetLayout, .pushConstantRangeCount = 0 };
@@ -995,6 +1061,45 @@ private:
 		trackMesh->generateMesh();
 	}
 
+	void createGroundGrid()
+	{
+		groundGridMesh = std::make_unique<osp::Mesh>(device, physicalDevice, queue, commandPool);
+
+		std::vector<osp::Vertex>& vertices = groundGridMesh->data.vertices;
+		std::vector<uint32_t>& indices = groundGridMesh->data.indices;
+
+		glm::vec3 color{ 10, 10, 10 };
+		color /= 256.0;
+		float gridHalfSize = 1000.0;
+		float spacing = 0.5;
+		const int lineCount = static_cast<int>((gridHalfSize * 2.0f) / spacing) + 1;
+
+		uint32_t index = 0;
+
+		for (int i = 0; i < lineCount; ++i)
+		{
+			float pos = -gridHalfSize + i * spacing;
+
+			// Line parallel to X axis (along Z)
+			vertices.push_back({{ -gridHalfSize, 0.0f, pos }, color, { 0.0f, 0.0f }, UP_DIR});
+			vertices.push_back({{  gridHalfSize, 0.0f, pos }, color, { 0.0f, 0.0f }, UP_DIR });
+
+			indices.push_back(index++);
+			indices.push_back(index++);
+			indices.push_back(index-1);
+
+			// Line parallel to Z axis (along X)
+			vertices.push_back({ { pos, 0.0f, -gridHalfSize }, color, { 0.0f, 0.0f }, UP_DIR });
+			vertices.push_back({ { pos, 0.0f, gridHalfSize }, color, { 0.0f, 0.0f }, UP_DIR });
+
+			indices.push_back(index++);
+			indices.push_back(index++);
+			indices.push_back(index-1);
+		}
+
+		groundGridMesh->upload();
+	}
+
 	void createUniformBuffers()
 	{
 		uniformBuffers.clear();
@@ -1190,19 +1295,34 @@ private:
 			.colorAttachmentCount = 1,
 			.pColorAttachments = &colorAttachment,
 			.pDepthAttachment = &depthAttachment };
+
 		commandBuffers[currentFrame].beginRendering(renderingInfo);
 		commandBuffers[currentFrame].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
 		commandBuffers[currentFrame].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
 		commandBuffers[currentFrame].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+
+		// Draw Ground
+		commandBuffers[currentFrame].bindVertexBuffers(0, *groundGridMesh->vertexBuffer.buffer, { 0 });
+		commandBuffers[currentFrame].setDepthTestEnable(false);
+		commandBuffers[currentFrame].bindIndexBuffer(*groundGridMesh->indexBuffer.buffer, 0, vk::IndexType::eUint32);
+		commandBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
+		commandBuffers[currentFrame].drawIndexed(groundGridMesh->data.indices.size(), 1, 0, 0, 0);
+
+		// Draw Track Mesh
 		if (trackMesh != nullptr && trackMesh->mesh.data.indices.size() > 0)
 		{
 			commandBuffers[currentFrame].bindVertexBuffers(0, *trackMesh->mesh.vertexBuffer.buffer, { 0 });
+			commandBuffers[currentFrame].setDepthTestEnable(true);
 			commandBuffers[currentFrame].bindIndexBuffer(*trackMesh->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
 			commandBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
 			commandBuffers[currentFrame].drawIndexed(trackMesh->mesh.data.indices.size(), 1, 0, 0, 0);
 		}
+
 		commandBuffers[currentFrame].endRendering();
 
+
+
+		// Draw ImGui
 		drawImGui(commandBuffers[currentFrame], swapChainImageViews[imageIndex]);
 
 		// After rendering, transition the swapchain image to PRESENT_SRC

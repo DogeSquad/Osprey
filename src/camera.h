@@ -11,6 +11,10 @@ namespace osp
 {
 
 struct Camera {
+	enum ViewMode {
+		PERSPECTIVE,
+		ORTHOGONAL
+	} viewMode = ViewMode::PERSPECTIVE;
 	float fov = 45.f;
 	float near = 0.01f;
 
@@ -30,11 +34,20 @@ struct Camera {
 
 	bool leftDown = false;
 	bool rightDown = false;
-	double lastX;
-	double lastY;
+	double lastX = 0.0;
+	double lastY = 0.0;
+
+	GLFWwindow* window;
+	Camera() = default;
+	Camera(GLFWwindow* window) : window(window)
+	{}
 
 	void updateView(GLFWwindow* window, float deltaTime);
 	void updateProj(GLFWwindow* window, float deltaTime);
+	
+	glm::vec2 projectPositionToScreen(glm::vec3 position, uint32_t width, uint32_t height);
+
+	void toggleViewMode();
 
 	void onMouseButton(GLFWwindow* window, int button, int action, int mods);
 	void onCursor(GLFWwindow* window, double xpos, double ypos);

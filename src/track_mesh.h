@@ -73,15 +73,42 @@ struct TrackMesh
 			glm::vec3 up = rotation * -glm::normalize(glm::cross(forward, right));
 
 			// Construct Geometry
-			vertices.push_back({ nodePositions[i] - up * 0.1, tubeColor, {0.0, 0.0}, -up });
-			vertices.push_back({ nodePositions[i] + right * 0.1, tubeColor, {0.0, 0.0}, up });
-			vertices.push_back({ nodePositions[i] - right * 0.1, tubeColor, {0.0, 0.0}, up });
+			vertices.push_back({ nodePositions[i] -    up * 0.1, tubeColor, {0.0, 0.0}, -up });
+			vertices.push_back({ nodePositions[i] + right * 0.1, tubeColor, {0.0, 0.0},  up });
+			vertices.push_back({ nodePositions[i] - right * 0.1, tubeColor, {0.0, 0.0},  up });
 
+			// Inner Beams
+			indices.push_back(3 * (i + 0) + 0);
+			indices.push_back(3 * (i + 0) + 1);
+			indices.push_back(3 * (i + 0) + 1);
+
+			indices.push_back(3 * (i + 0) + 1);
+			indices.push_back(3 * (i + 0) + 2);
+			indices.push_back(3 * (i + 0) + 2);
+
+			indices.push_back(3 * (i + 0) + 2);
+			indices.push_back(3 * (i + 0) + 0);
+			indices.push_back(3 * (i + 0) + 0);
 
 			if (i == nodePositions.size() - 1)
 			{
 				break;
 			}
+
+			// Tangent Beams
+			indices.push_back(3 * (i + 0) + 0);
+			indices.push_back(3 * (i + 1) + 0);
+			indices.push_back(3 * (i + 1) + 0);
+
+			indices.push_back(3 * (i + 0) + 1);
+			indices.push_back(3 * (i + 1) + 1);
+			indices.push_back(3 * (i + 1) + 1);
+
+			indices.push_back(3 * (i + 0) + 2);
+			indices.push_back(3 * (i + 1) + 2);
+			indices.push_back(3 * (i + 1) + 2);
+
+			continue;
 
 			// SIDE A
 			indices.push_back(3 * (i+0) + 0);
