@@ -457,6 +457,52 @@ private:
 		if (track.curve.cumulativeLengths.empty())
 			return;
 		float remainingTime = dt;
+		float dtSub = 0.001f; // max substep
+
+		while (remainingTime > 0) {
+			float step = std::min(dtSub, remainingTime);
+
+			glm::vec3 pos = track.curve.evaluate(s);
+			int segIndex = track.curve.getSegmentAtLength(s);
+
+			// Clamp end
+			if (segIndex >= track.curve.controlPoints.size() - 1)
+			{
+				v = 0;
+				return;
+			}
+
+			float segLen = track.curve.segmentLengths[segIndex];
+
+			glm::vec3 p0 = track.curve.controlPoints[segIndex];
+			glm::vec3 p1 = track.curve.controlPoints[segIndex + 1];
+			glm::vec3 tangent = glm::normalize(p1 - p0);
+
+			float a = 0.001f * glm::dot(GRAVITY, tangent);
+
+			// Euler integration
+			s += v * step + 0.5f * a * step * step;
+			v += a * step;
+
+			if (segIndex < 12) 
+			{
+				v = 0.01f;
+			}
+
+			// Clamp s to track
+			if (s < 0) { s = 0; v = 0; }
+			if (s > track.curve.cumulativeLengths.back()) { s = track.curve.cumulativeLengths.back(); v = 0; }
+
+			remainingTime -= step;
+		}
+	}
+
+	void doPhysics2()
+	{
+		const float eps = 1e-5f;
+		if (track.curve.cumulativeLengths.empty())
+			return;
+		float remainingTime = dt;
 
 		while (remainingTime > 0.0f)
 		{
@@ -493,7 +539,7 @@ private:
 			float ds = v0 * tMax + 0.5f * a * tMax * tMax;
 
 			// ------------------ FORWARD MOTION ------------------
-			if (ds > 0)
+			if (ds > 0.0f)
 			{
 				float segRemaining = segLen - dist;
 
@@ -528,7 +574,7 @@ private:
 			}
 
 			// ------------------ BACKWARD MOTION ------------------
-			if (ds < 0)
+			if (ds < 0.0f)
 			{
 				float segRemainingBack = dist;  // distance to previous segment
 
@@ -565,6 +611,7 @@ private:
 			}
 
 			// ------------------ No movement (ds=0), gravity aligned? ------------------
+			return;
 		}
 	}
 
@@ -660,9 +707,9 @@ private:
 			}
 			else 
 			{
-				//doPhysics();
-				//s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.empty() ? 0.0f : track.curve.cumulativeLengths.back());
-				//u = track.curve.arcLengthToNormalized(s);
+				doPhysics();
+				s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.empty() ? 0.0f : track.curve.cumulativeLengths.back());
+				u = track.curve.arcLengthToNormalized(s);
 			}
 
 			ImGui::End();

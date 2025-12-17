@@ -73,6 +73,10 @@ struct PiecewiseLinearCurve
 
 	glm::vec3 evaluate(float s, size_t* i = nullptr) 
 	{
+		if (cumulativeLengths.empty())
+		{
+			return glm::vec3(0.0, 0.0, 0.0);
+		}
 		s = glm::clamp(s, 0.0f, cumulativeLengths.empty() ? 0.0f : cumulativeLengths.back());
 
 		// Find segment (maybe implement binary search?)
