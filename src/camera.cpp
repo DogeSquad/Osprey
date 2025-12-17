@@ -73,8 +73,8 @@ void Camera::onMouseButton(GLFWwindow* window, int button, int action, int mods)
 }
 void Camera::onCursor(GLFWwindow* window, double xpos, double ypos)
 {
-	double dx = xpos - this->lastX;
-	double dy = ypos - this->lastY;
+	float dx = xpos - this->lastX;
+	float dy = ypos - this->lastY;
 	this->lastX = xpos;
 	this->lastY = ypos;
 

@@ -240,12 +240,29 @@ private:
 	}
 	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 	{
-		if (ImGui::GetIO().WantCaptureMouse) {
+		if (ImGui::GetIO().WantCaptureMouse) 
+		{
 			ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-			return;
+			//return;
 		}
 
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
+		if (app->lastHoveredControlPointIndex != -1)
+		{
+			float unclampedRoll = app->track.roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
+			app->track.roll[app->lastHoveredControlPointIndex] = unclampedRoll;
+			if (unclampedRoll > 180.0f) {
+				app->track.roll[app->lastHoveredControlPointIndex] -= 360.0f;
+			}
+			else if (unclampedRoll < -180.0f) {
+				app->track.roll[app->lastHoveredControlPointIndex] += 360.0f;
+			}
+
+			app->track.update();
+			app->createTrack();
+			return;
+		}
+
 		app->getCamera()->onScroll(window, xoffset, yoffset);
 	}
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -282,6 +299,18 @@ private:
 				app->isShift = true;
 			if (action == GLFW_RELEASE)
 				app->isShift = false;
+		}
+
+
+		if (key == GLFW_KEY_RIGHT && key == GLFW_PRESS)
+		{
+			app->track.roll[app->lastHoveredControlPointIndex] += 1.0f;
+			app->trackMesh->generateMesh();
+		}		
+		if (key == GLFW_KEY_LEFT && key == GLFW_PRESS)
+		{
+			app->track.roll[app->lastHoveredControlPointIndex] += 1.0f;
+			app->trackMesh->generateMesh();
 		}
 	}
 
@@ -383,6 +412,15 @@ private:
 		createTrack();
 	}
 
+	void saveTrack(std::string filePath)
+	{
+		if (filePath.empty())
+		{
+			return;
+		}
+		track.save(filePath);
+	}
+
 	void initWorld() 
 	{
 		camera = osp::Camera(window);
@@ -416,7 +454,7 @@ private:
 				{
 					if (ImGui::MenuItem("Open"))
 					{
-						nfdu8char_t* outPath;
+						nfdu8char_t* outPath = NULL;
 						nfdu8filteritem_t filters[1] = { { "YAML", "yaml" } };
 						nfdopendialogu8args_t args = { 0 };
 						args.filterList = filters;
@@ -424,8 +462,21 @@ private:
 						nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 						if (result == NFD_OKAY) {
 							loadTrack(outPath);
+							NFD_FreePathU8(outPath);
 						}
-						NFD_FreePathU8(outPath);
+					}
+					if (ImGui::MenuItem("Save As..."))
+					{
+						nfdu8char_t* savePath = NULL;
+						nfdu8filteritem_t filters[1] = { { "YAML", "yaml" } };
+						nfdsavedialogu8args_t args = { 0 };
+						args.filterList = filters;
+						args.filterCount = 1;
+						nfdresult_t result = NFD_SaveDialogU8_With(&savePath, &args);
+						if (result == NFD_OKAY) {
+							saveTrack(savePath);
+							NFD_FreePathU8(savePath);
+						}
 					}
 					ImGui::Separator();
 					if (ImGui::MenuItem("Exit"))
@@ -656,35 +707,40 @@ private:
 			id[3][1] = controlPoints[lastHoveredControlPointIndex][1];
 			id[3][2] = controlPoints[lastHoveredControlPointIndex][2];
 			glm::mat4 delta = glm::identity<glm::mat4>();
-			if (!isShift)
-			{
-				ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
-				controlPoints[lastHoveredControlPointIndex][0] += delta[3][0];
-				controlPoints[lastHoveredControlPointIndex][1] += delta[3][1];
-				controlPoints[lastHoveredControlPointIndex][2] += delta[3][2];
-			}
-			//else 
-			//{
-			//	ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::ROTATE_Z, ImGuizmo::MODE::LOCAL, glm::value_ptr(id), glm::value_ptr(delta));
-			//}
+
+			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
+			controlPoints[lastHoveredControlPointIndex][0] += delta[3][0];
+			controlPoints[lastHoveredControlPointIndex][1] += delta[3][1];
+			controlPoints[lastHoveredControlPointIndex][2] += delta[3][2];
+
 			createTrack();
 			return;
 		}
+		lastHoveredControlPointIndex = -1;
+		float minDist = 100000000.0f;
 		for (int i = 0; i < controlPoints.size(); i++)
 		{
 			glm::vec2 screenPos = camera.projectPositionToScreen(controlPoints[i], static_cast<uint32_t>(swapChainExtent.width), static_cast<uint32_t>(swapChainExtent.height));
-			if (glm::distance(screenPos, screenCursorPos) < 50.0f)
+			float dist = glm::distance(screenPos, screenCursorPos);
+			if (dist < minDist)
 			{
-				glm::mat4 proj(camera.proj);
-				proj[1][1] *= -1;
-				glm::mat4 id = glm::identity<glm::mat4>();
-				id[3][0] = controlPoints[i][0];
-				id[3][1] = controlPoints[i][1];
-				id[3][2] = controlPoints[i][2];
-				ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
 				lastHoveredControlPointIndex = i;
-				break;
+				minDist = dist;
 			}
+		}
+		if (lastHoveredControlPointIndex != -1 && minDist < 50.0f)
+		{
+			glm::mat4 proj(camera.proj);
+			proj[1][1] *= -1;
+			glm::mat4 id = glm::identity<glm::mat4>();
+			id[3][0] = controlPoints[lastHoveredControlPointIndex][0];
+			id[3][1] = controlPoints[lastHoveredControlPointIndex][1];
+			id[3][2] = controlPoints[lastHoveredControlPointIndex][2];
+			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
+		}
+		else
+		{
+			lastHoveredControlPointIndex = -1;
 		}
 	}
 
@@ -1058,6 +1114,7 @@ private:
 		device.waitIdle();
 		trackMesh = std::make_unique<osp::TrackMesh>(device, physicalDevice, queue, commandPool);
 		trackMesh->track = track;
+		track.update();
 		trackMesh->generateMesh();
 	}
 

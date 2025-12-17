@@ -55,13 +55,6 @@ struct TrackMesh
 		const std::vector<glm::vec3>& nodeTangents = track.curve.controlTangents;
 		const std::vector<double>& nodeRoll = track.roll;
 
-		glm::vec3 prevForward;
-		glm::vec3 prevRight;
-		glm::vec3 prevUp;
-		bool first = true;
-		glm::vec3 transportRight;
-		glm::vec3 transportUp;
-
 		for (int i = 0; i < nodePositions.size(); i++)
 		{
 			glm::vec3 position = nodePositions[i];
@@ -70,7 +63,7 @@ struct TrackMesh
 
 			glm::mat3 rotation = glm::rotate(glm::radians((float)nodeRoll[i]), forward);
 			glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
-			glm::vec3 up = rotation * -glm::normalize(glm::cross(forward, right));
+			glm::vec3 up = -glm::normalize(glm::cross(forward, right));
 
 			// Construct Geometry
 			vertices.push_back({ nodePositions[i] -    up * 0.1, tubeColor, {0.0, 0.0}, -up });

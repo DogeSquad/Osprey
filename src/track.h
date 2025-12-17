@@ -51,31 +51,35 @@ struct PiecewiseLinearCurve
 		controlTangents = std::vector<glm::vec3>();
 		controlTangents.reserve(N);
 
-		for (int i = 0; i < N-1; i++)
-		{
-			controlTangents.push_back(glm::normalize(controlPoints[i+1] - controlPoints[i]));
+		controlTangents.push_back(glm::normalize(controlPoints[1] - controlPoints[0]));
+		
+		for (int i = 1; i < N-1; i++)
+		{ 
+			glm::vec3 back = controlPoints[i] - controlPoints[i - 1];
+			glm::vec3 forward = controlPoints[i+1] - controlPoints[i];
+			controlTangents.push_back(glm::normalize(glm::mix(back, forward, 0.5f)));
 		}
-		controlTangents.push_back(controlTangents[N-2]);
+		controlTangents.push_back(glm::normalize(controlPoints[N - 1] - controlPoints[N - 2]));
 	}
 
-	glm::vec3 getControlPointNormalInterpolated(uint32_t index) 
-	{
-		if (controlTangents.size() == 0)
-		{
-			return glm::vec3(0.0, 0.0, 0.0);
-		}
+	//glm::vec3 getControlPointNormalInterpolated(uint32_t index) 
+	//{
+	//	if (controlTangents.size() == 0)
+	//	{
+	//		return glm::vec3(0.0, 0.0, 0.0);
+	//	}
 
-		if (index <= 0)
-		{
-			return controlTangents[0];
-		}
-		else if (index >= controlTangents.size()-1)
-		{
-			return controlTangents[controlTangents.size()-1];
-		}
+	//	if (index <= 0)
+	//	{
+	//		return controlTangents[0];
+	//	}
+	//	else if (index >= controlTangents.size()-1)
+	//	{
+	//		return controlTangents[controlTangents.size()-1];
+	//	}
 
-		return glm::normalize(0.5f * controlTangents[index] + 0.5f * controlTangents[index-1]);
-	}
+	//	return glm::normalize(0.5f * controlTangents[index] + 0.5f * controlTangents[index-1]);
+	//}
 
 	glm::vec3 evaluate(double u) 
 	{
@@ -130,6 +134,34 @@ struct Track
 			}
 		}
 		roll = config["roll"].as<std::vector<double>>();
+		update();
+	}
+
+	void save(const std::string& path)
+	{
+		YAML::Node root;
+
+		root["knots"] = curve.knots;       // works automatically for std::vector
+		root["roll"] = roll;
+
+		YAML::Emitter out;
+		out << root;
+		out << YAML::BeginMap;
+		out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
+		for (const auto& p : curve.controlPoints)
+		{
+			out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
+		}
+		out << YAML::EndMap;
+
+
+		std::ofstream fout(path);
+		fout << out.c_str();
+		fout.close();
+	}
+
+	void update()
+	{
 		curve.calculateLength();
 		curve.calculateTangents();
 	}
