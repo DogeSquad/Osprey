@@ -11,7 +11,9 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <filesystem>
 #include <vector>
+#include <thread>
 
 // File Loading
 #include <nfd.h>
@@ -200,6 +202,15 @@ private:
 	std::unique_ptr<osp::Mesh> groundGridMesh;
 
 	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\track1.yaml";
+	std::string currentTrackFileName = "track1.yaml";
+
+	bool showAbout = false;
+
+	// PHYSICS
+	float dt = 0.016666;
+	float u = 0.0f;
+	float s = 0.0f;
+	float v = 0.0f;
 
 	void initWindow()
 	{
@@ -226,6 +237,8 @@ private:
 		}
 
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
+		if (app->showAbout) return;
+
 		app->getCamera()->onMouseButton(window, button, action, mods);
 	}
 	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
@@ -245,8 +258,9 @@ private:
 			ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
 			//return;
 		}
-
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
+		if (app->showAbout) return;
+
 		if (app->lastHoveredControlPointIndex != -1)
 		{
 			float unclampedRoll = app->track.roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
@@ -270,15 +284,18 @@ private:
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) 
 		{
-			glfwSetWindowShouldClose(window, true);
+			if (app->showAbout)
+			{
+				app->showAbout = false;
+			}
+			else
+			{
+				glfwSetWindowShouldClose(window, true);
+			}
 		}
-		if (key == GLFW_KEY_F5 && action == GLFW_PRESS)
+		if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
 		{
-			app->loadTrack(app->currentTrackFilePath);
-		}
-		if (key == GLFW_KEY_F1 && action == GLFW_PRESS) 
-		{
-			if (glfwGetWindowAttrib(window, GLFW_MAXIMIZED)) 
+			if (glfwGetWindowAttrib(window, GLFW_MAXIMIZED))
 			{
 				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
 				glfwRestoreWindow(window);
@@ -288,6 +305,13 @@ private:
 				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 				glfwMaximizeWindow(window);
 			}
+		}
+		if (app->showAbout) return;
+
+
+		if (key == GLFW_KEY_F5 && action == GLFW_PRESS)
+		{
+			app->loadTrack(app->currentTrackFilePath);
 		}
 		if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
 		{
@@ -299,18 +323,6 @@ private:
 				app->isShift = true;
 			if (action == GLFW_RELEASE)
 				app->isShift = false;
-		}
-
-
-		if (key == GLFW_KEY_RIGHT && key == GLFW_PRESS)
-		{
-			app->track.roll[app->lastHoveredControlPointIndex] += 1.0f;
-			app->trackMesh->generateMesh();
-		}		
-		if (key == GLFW_KEY_LEFT && key == GLFW_PRESS)
-		{
-			app->track.roll[app->lastHoveredControlPointIndex] += 1.0f;
-			app->trackMesh->generateMesh();
 		}
 	}
 
@@ -406,10 +418,16 @@ private:
 		if (currentTrackFilePath != filePath)
 		{
 			currentTrackFilePath = filePath; // TODO: Assumes that it is valid
+			currentTrackFileName = std::filesystem::path(filePath).filename().string();
 		}
+		//device.waitIdle();
 		track = osp::Track();
 		track.load(std::string(filePath));
 		createTrack();
+
+		u = 0.0f;
+		s = 0.0f;
+		v = 0.001f;
 	}
 
 	void saveTrack(std::string filePath)
@@ -434,10 +452,128 @@ private:
 		camera.updateView(window, 0.0f);
 	}
 
+	void doPhysics()
+	{
+		if (track.curve.cumulativeLengths.empty())
+			return;
+		float remainingTime = dt;
+
+		while (remainingTime > 0.0f)
+		{
+			// Clamp s inside track
+			s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.back());
+
+			// ----------- Locate current segment -----------
+			float dist = s;
+			int segIndex = track.curve.getSegmentAtLength(s);
+
+			// Clamp end
+			if (segIndex >= track.curve.controlPoints.size() - 1)
+			{
+				v = 0;
+				return;
+			}
+
+			float segLen = track.curve.segmentLengths[segIndex];
+
+			glm::vec3 p0 = track.curve.controlPoints[segIndex];
+			glm::vec3 p1 = track.curve.controlPoints[segIndex+1];
+			glm::vec3 tangent = glm::normalize(p1 - p0);
+
+			// Gravity projection onto tangent
+			float a = 0.01f * glm::dot(GRAVITY, tangent);
+
+			float v0 = v;
+			float tMax = remainingTime;
+
+			// Predicted velocity
+			float v1 = v0 + a * tMax;
+
+			// Predicted displacement along tangent
+			float ds = v0 * tMax + 0.5f * a * tMax * tMax;
+
+			// ------------------ FORWARD MOTION ------------------
+			if (ds > 0)
+			{
+				float segRemaining = segLen - dist;
+
+				if (ds < segRemaining)
+				{
+					// Does not reach boundary -> simple update
+					s += ds;
+					v = v1;
+					return;
+				}
+
+				// Reaches next boundary -> compute exact hit time
+				float A = 0.5f * a;
+				float B = v0;
+				float C = -segRemaining;
+
+				float dtHit;
+				if (fabs(a) < 1e-6f)     // linear motion
+					dtHit = segRemaining / v0;
+				else
+				{
+					float disc = B * B - 4 * A * C;
+					dtHit = (-B + sqrt(disc)) / (2 * A);
+				}
+
+				// Move exactly to segment end
+				s += segRemaining;
+				v += a * dtHit;
+
+				remainingTime -= dtHit;
+				continue;
+			}
+
+			// ------------------ BACKWARD MOTION ------------------
+			if (ds < 0)
+			{
+				float segRemainingBack = dist;  // distance to previous segment
+
+				if (-ds < segRemainingBack)
+				{
+					// Does not reach previous boundary
+					s += ds;  // ds is negative
+					v = v1;
+					return;
+				}
+
+				// Hits previous boundary -> compute exact hit time
+				float A = 0.5f * a;
+				float B = v0;
+				float C = segRemainingBack; // positive number
+
+				float dtHit;
+				if (fabs(a) < 1e-6f)
+					dtHit = segRemainingBack / fabs(v0);
+				else
+				{
+					float disc = B * B - 4 * A * C;
+					dtHit = (-B - sqrt(disc)) / (2 * A); // minus sign for backward
+				}
+
+				dtHit = fabs(dtHit);
+
+				// Move exactly to previous boundary
+				s -= segRemainingBack;
+				v += a * dtHit;
+
+				remainingTime -= dtHit;
+				continue;
+			}
+
+			// ------------------ No movement (ds=0), gravity aligned? ------------------
+		}
+	}
+
 	void mainLoop()
 	{
+		double startTime, endTime;
 		while (!glfwWindowShouldClose(window))
 		{
+			startTime = glfwGetTime();
 			glfwPollEvents();
 
 			ImGui_ImplVulkan_NewFrame();
@@ -489,12 +625,114 @@ private:
 
 				if (ImGui::BeginMenu("Help"))
 				{
-					if (ImGui::MenuItem("About")) { /* ... */ }
+					if (ImGui::MenuItem("About")) {
+						showAbout = true;
+					}
 					ImGui::EndMenu();
 				}
 
+				ImGui::Separator();
+				ImGui::Text(currentTrackFileName.c_str());
+
 				ImGui::EndMainMenuBar();
 			}
+
+			ImGuiIO& io = ImGui::GetIO();
+			ImVec2 winSize(400.0f, 50.0f);
+			ImVec2 pos = ImVec2(0.0f, io.DisplaySize.y - winSize.y);
+
+			ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+			ImGui::SetNextWindowSize(winSize);
+
+			ImGuiWindowFlags flags =
+				ImGuiWindowFlags_NoDecoration
+				| ImGuiWindowFlags_NoMove
+				| ImGuiWindowFlags_NoSavedSettings
+				| ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+			ImGui::Begin("Track Controls", nullptr, flags);
+
+			ImGui::SetCursorPosY(winSize.y * 0.5f - 10.0f);
+			if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
+			{
+				s = track.curve.normalizedToArcLength(u);
+				v = 0;
+			}
+			else 
+			{
+				//doPhysics();
+				//s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.empty() ? 0.0f : track.curve.cumulativeLengths.back());
+				//u = track.curve.arcLengthToNormalized(s);
+			}
+
+			ImGui::End();
+
+			if (trackMesh)
+			{
+				ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+				glm::vec3 curvePos = track.curve.evaluate(s);
+				glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChainExtent.width, swapChainExtent.height);
+				float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
+				drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+			}
+
+			if (showAbout) {
+				ImGuiIO& io = ImGui::GetIO();
+				ImVec2 viewportSize = io.DisplaySize;
+
+				// Draw dark overlay
+				ImDrawList* drawList = ImGui::GetBackgroundDrawList();
+				drawList->AddRectFilled(
+					ImVec2(0, 0), viewportSize, IM_COL32(0, 0, 0, 120) // semi-transparent black
+				);
+
+				// Centered window
+				ImVec2 windowSize(viewportSize.x * 0.35f, viewportSize.y * 0.35f);
+				ImVec2 center = ImVec2(viewportSize.x * 0.5f - windowSize.x * 0.5f,
+					viewportSize.y * 0.5f - windowSize.y * 0.5f);
+				ImGui::SetNextWindowPos(center);
+				ImGui::SetNextWindowSize(windowSize);
+
+				ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
+					| ImGuiWindowFlags_NoCollapse
+					| ImGuiWindowFlags_NoMove
+					| ImGuiWindowFlags_NoSavedSettings
+					| ImGuiWindowFlags_NoDecoration;
+
+				// Make window slightly transparent
+				ImVec4 col = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+				ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(255 * col.x, 255 * col.y, 255 * col.z, 255));
+
+				if (ImGui::Begin("About", &showAbout, flags)) {
+					ImGui::Text("Osprey v0.1");
+					ImGui::Separator();
+
+					const char* text = 
+						"Copyright [yyyy] Lennart S\n"
+						"\n"
+						"Licensed under the Apache License, Version 2.0 (the \"License\");\n"
+						"you may not use this file except in compliance with the License.\n"
+						"You may obtain a copy of the License at\n"
+						"\n"
+						"  http ://www.apache.org/licenses/LICENSE-2.0\n"
+						"\n"
+						"Unless required by applicable law or agreed to in writing, software\n"
+						"distributed under the License is distributed on an \"AS IS\" BASIS,\n"
+						"WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n"
+						"See the License for the specific language governing permissions and \n"
+						"limitations under the License.\n";
+					ImVec2 textSize = ImGui::CalcTextSize(text);
+					ImGui::SetCursorPosX((windowSize.x - textSize.x) * 0.5f);
+					ImGui::SetCursorPosY((windowSize.y - textSize.y) * 0.5f);
+					ImGui::Text(text);
+					ImGui::Dummy(ImVec2(0, 20));
+				}
+				ImGui::End();
+
+				ImGui::PopStyleColor();
+			}
+			ImGui::EndFrame();
 
 			ImGui::Render();
 
@@ -502,6 +740,13 @@ private:
 		}
 
 		device.waitIdle();
+
+		endTime = glfwGetTime();
+		double timeDiff = endTime - startTime;
+		if (timeDiff < dt)
+		{
+			std::this_thread::sleep_for(std::chrono::microseconds((int)glm::round(timeDiff * 1000000)));
+		}
 	}
 
 	void cleanupSwapChain()
@@ -697,6 +942,7 @@ private:
 
 	void showTranslateOnHover()
 	{
+		if (showAbout) return;
 		std::vector<glm::vec3>& controlPoints = track.curve.controlPoints;
 		if (ImGuizmo::IsUsing())
 		{

@@ -47,6 +47,8 @@ struct Camera {
 	
 	glm::vec2 projectPositionToScreen(glm::vec3 position, uint32_t width, uint32_t height);
 
+	float depthOfPoint(glm::vec3 position);
+
 	void toggleViewMode();
 
 	void onMouseButton(GLFWwindow* window, int button, int action, int mods);

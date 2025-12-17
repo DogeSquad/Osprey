@@ -55,6 +55,12 @@ glm::vec2 Camera::projectPositionToScreen(glm::vec3 position, uint32_t width, ui
 	return glm::vec2((ndc.x * 0.5f + 0.5f) * width, (ndc.y * 0.5f + 0.5f) * height);
 }
 
+float Camera::depthOfPoint(glm::vec3 position)
+{
+	float viewZ = (view * glm::vec4(position, 1.0)).z;
+	return -viewZ; // positive distance
+}
+
 void Camera::toggleViewMode()
 {
 	this->viewMode = (viewMode == ViewMode::PERSPECTIVE) ? ViewMode::ORTHOGONAL : ViewMode::PERSPECTIVE;

@@ -53,7 +53,7 @@ struct TrackMesh
 		std::vector<uint32_t>& indices = mesh.data.indices;
 		const std::vector<glm::vec3>& nodePositions = track.curve.controlPoints;
 		const std::vector<glm::vec3>& nodeTangents = track.curve.controlTangents;
-		const std::vector<double>& nodeRoll = track.roll;
+		const std::vector<float>& nodeRoll = track.roll;
 
 		for (int i = 0; i < nodePositions.size(); i++)
 		{
@@ -149,7 +149,7 @@ struct TrackMesh
 		std::vector<uint32_t>& indices = mesh.data.indices;
 		const std::vector<glm::vec3>& nodePositions = track.curve.controlPoints;
 		const std::vector<glm::vec3>& nodeTangents = track.curve.controlTangents;
-		const std::vector<double>& nodeRoll = track.roll;
+		const std::vector<float>& nodeRoll = track.roll;
 
 		glm::vec3 prevForward;
 		glm::vec3 prevRight;
