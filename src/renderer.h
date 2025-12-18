@@ -201,8 +201,8 @@ private:
 	std::unique_ptr<osp::TrackMesh> trackMesh;
 	std::unique_ptr<osp::Mesh> groundGridMesh;
 
-	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\track1.yaml";
-	std::string currentTrackFileName = "track1.yaml";
+	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\coolCircuit.yaml";
+	std::string currentTrackFileName = "coolCircuit.yaml";
 
 	bool showAbout = false;
 
@@ -211,6 +211,8 @@ private:
 	float u = 0.0f;
 	float s = 0.0f;
 	float v = 0.0f;
+
+	bool doSimulate = true;
 
 	void initWindow()
 	{
@@ -323,6 +325,23 @@ private:
 				app->isShift = true;
 			if (action == GLFW_RELEASE)
 				app->isShift = false;
+		}
+
+		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+		{
+			if (!app->track.roll.empty())
+			{
+				app->track.addNextSegment();
+				app->createTrack();
+			}
+		}
+		if (key == GLFW_KEY_BACKSPACE && action == GLFW_PRESS)
+		{
+			if (!app->track.roll.empty())
+			{
+				app->track.removeLastSegment();
+				app->createTrack();
+			}
 		}
 	}
 
@@ -478,8 +497,10 @@ private:
 			glm::vec3 p1 = track.curve.controlPoints[segIndex + 1];
 			glm::vec3 tangent = glm::normalize(p1 - p0);
 
-			float a = 0.001f * glm::dot(GRAVITY, tangent);
-
+			float a = 0.001f * 9.81f * glm::dot(GRAVITY, tangent);
+			float rollingFriction = 0.01;
+			float frictionAccel = -rollingFriction * 0.001f * 9.81f * (v > 0 ? 1.0f : -1.0f);
+			a += frictionAccel;
 			// Euler integration
 			s += v * step + 0.5f * a * step * step;
 			v += a * step;
@@ -617,6 +638,7 @@ private:
 
 	void mainLoop()
 	{
+		ImGuizmo::AllowAxisFlip(false);
 		double startTime, endTime;
 		while (!glfwWindowShouldClose(window))
 		{
@@ -699,7 +721,6 @@ private:
 
 			ImGui::Begin("Track Controls", nullptr, flags);
 
-			ImGui::SetCursorPosY(winSize.y * 0.5f - 10.0f);
 			if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
 			{
 				s = track.curve.normalizedToArcLength(u);
@@ -707,10 +728,14 @@ private:
 			}
 			else 
 			{
-				doPhysics();
+				if (doSimulate)
+				{
+					doPhysics();
+				}
 				s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.empty() ? 0.0f : track.curve.cumulativeLengths.back());
 				u = track.curve.arcLengthToNormalized(s);
 			}
+			ImGui::Checkbox("Simulate Physics", &doSimulate);
 
 			ImGui::End();
 
@@ -721,7 +746,18 @@ private:
 				glm::vec3 curvePos = track.curve.evaluate(s);
 				glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChainExtent.width, swapChainExtent.height);
 				float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
-				drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+				//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+
+				glm::mat4 proj(camera.proj);
+				proj[1][1] *= -1;
+				glm::mat4 frenet = track.evaluateFrenetInterpolated(s);
+				glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
+				model[3][3] = 1.0f;
+				model[3][1] += 0.05f;
+				model = frenet * model;
+				glm::mat4 id = glm::identity<glm::mat4>();
+				ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
+				//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
 			}
 
 			if (showAbout) {
@@ -991,7 +1027,7 @@ private:
 	{
 		if (showAbout) return;
 		std::vector<glm::vec3>& controlPoints = track.curve.controlPoints;
-		if (ImGuizmo::IsUsing())
+		if (ImGuizmo::IsUsing() && lastHoveredControlPointIndex != -1)
 		{
 			glm::mat4 proj(camera.proj);
 			proj[1][1] *= -1;

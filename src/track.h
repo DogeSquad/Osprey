@@ -36,6 +36,8 @@ struct PiecewiseLinearCurve
 
 		if (controlPoints.size() <= 1)
 			return;
+		segmentLengths.clear();
+		cumulativeLengths.clear();
 
 		segmentLengths.reserve(controlPoints.size()-1);
 		cumulativeLengths.reserve(controlPoints.size()-1);
@@ -93,20 +95,6 @@ struct PiecewiseLinearCurve
 		return glm::mix(controlPoints[seg], controlPoints[seg + 1], t);
 	}
 
-	glm::vec3 evaluateFrenet(float s)
-	{
-		//size_t i = 0;
-		//
-
-		//glm::vec3 position = nodePositions[i];
-		//// Construct Frenet Frame
-		//glm::vec3 forward = glm::normalize(nodeTangents[i]);
-
-		//glm::mat3 rotation = glm::rotate(glm::radians((float)nodeRoll[i]), forward);
-		//glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
-		//glm::vec3 up = -glm::normalize(glm::cross(forward, right));
-	}
-
 	float normalizedToArcLength(float u)
 	{
 		if (cumulativeLengths.empty())
@@ -140,6 +128,15 @@ struct PiecewiseLinearCurve
 		return evaluate(normalizedToArcLength(u));
 	}
 };
+
+static void setColumn(glm::mat4& mat, glm::vec3 colVec, size_t index)
+{
+	if (index < 0 || index > 3) return;
+
+	mat[index][0] = colVec[0];
+	mat[index][1] = colVec[1];
+	mat[index][2] = colVec[2];
+}
 
 struct Track 
 {
@@ -197,10 +194,84 @@ struct Track
 		fout.close();
 	}
 
+	void addNextSegment()
+	{
+		float segmentLength = curve.segmentLengths.back();
+		glm::vec3 newControlPoint = curve.controlPoints.back() + segmentLength * curve.controlTangents.back();
+		curve.knots.push_back(curve.knots.back() + 1);
+		curve.controlTangents.push_back(curve.controlTangents.back());
+		curve.controlPoints.push_back(newControlPoint);
+		roll.push_back(roll.back());
+		curve.cumulativeLengths.push_back(curve.cumulativeLengths.back() + segmentLength);
+		curve.segmentLengths.push_back(segmentLength);
+		update();
+	}
+
+	void removeLastSegment()
+	{
+		curve.knots.pop_back();
+		curve.controlPoints.pop_back();
+		curve.controlTangents.pop_back();
+		curve.cumulativeLengths.pop_back();
+		curve.segmentLengths.pop_back();
+		roll.pop_back();
+	}
+
 	void update()
 	{
 		curve.calculateLength();
 		curve.calculateTangents();
+	}
+
+	glm::mat4 evaluateFrenet(float s)
+	{
+		size_t i = 0;
+		glm::vec3 position = curve.evaluate(s, &i);
+
+		// Construct Frenet Frame
+		glm::vec3 forward = glm::normalize(curve.controlTangents[i]);
+
+		glm::mat3 rotation = glm::rotate(glm::radians((float)roll[i]), forward);
+		glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
+		glm::vec3 up = -glm::normalize(glm::cross(forward, right));
+
+		glm::mat4 frenet = glm::identity<glm::mat4>();
+		setColumn(frenet, right, 0);
+		setColumn(frenet, up, 1);
+		setColumn(frenet, forward, 2);
+		setColumn(frenet, position, 3);
+
+		return frenet;
+	}
+
+	glm::mat4 evaluateFrenetInterpolated(float s)
+	{
+		size_t i = 0;
+		glm::vec3 position = curve.evaluate(s, &i);
+		float localT;
+		if (i == 0) 
+		{
+			localT = s / curve.segmentLengths[0];
+		}
+		else
+		{
+			localT = (s - curve.cumulativeLengths[i - 1]) / curve.segmentLengths[i]; // TODO Division by 0?
+		}
+		// Construct Frenet Frame
+		glm::vec3 forward = glm::normalize(glm::mix(curve.controlTangents[i], curve.controlTangents[i+1], localT));
+
+		glm::mat3 rotation = glm::rotate(glm::radians((float)glm::mix(roll[i], roll[i+1], localT)), forward);
+		glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
+		glm::vec3 up = -glm::normalize(glm::cross(forward, right));
+
+		glm::mat4 frenet = glm::identity<glm::mat4>();
+		frenet[3][3] = 1.0f;
+		setColumn(frenet, right, 0);
+		setColumn(frenet, up, 1);
+		setColumn(frenet, forward, 2);
+		setColumn(frenet, position, 3);
+
+		return frenet;
 	}
 };
 
