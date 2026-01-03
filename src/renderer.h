@@ -1454,10 +1454,10 @@ private:
 		std::vector<osp::Vertex>& vertices = groundGridMesh->data.vertices;
 		std::vector<uint32_t>& indices = groundGridMesh->data.indices;
 
-		glm::vec3 color{ 10, 10, 10 };
-		color /= 256.0;
-		float gridHalfSize = 1000.0;
-		float spacing = 0.5;
+		glm::vec3 color{ 10.0f, 10.0f, 10.0f };
+		color /= 256.0f;
+		float gridHalfSize = 1000.0f;
+		float spacing = 1.0f;
 		const int lineCount = static_cast<int>((gridHalfSize * 2.0f) / spacing) + 1;
 
 		uint32_t index = 0;
