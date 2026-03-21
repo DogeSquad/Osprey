@@ -6,8 +6,20 @@
 
 namespace osp {
 
-Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthFormat)
+Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthFormat, const Config& config)
 {
+	//struct Config {
+	//	std::string           shaderPath;
+	//	std::string           vertexEntry = "vertMain";
+	//	std::string           fragEntry = "fragMain";
+	//	vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
+	//	vk::PolygonMode       polygonMode = vk::PolygonMode::eFill;
+	//	bool                  hasVertexInput = true;
+	//	bool                  depthTest = true;
+	//	bool                  depthWrite = true;
+	//};
+	// .shaderPath = "shaders/slang.spv",
+	// .polygonMode = vk::PolygonMode::eLine,
 	std::array bindings = {
 		vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, nullptr),
 		vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment, nullptr) };
@@ -15,21 +27,14 @@ Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthF
 	vk::DescriptorSetLayoutCreateInfo layoutInfo{ .bindingCount = static_cast<uint32_t>(bindings.size()), .pBindings = bindings.data() };
 	descriptorSetLayout = vk::raii::DescriptorSetLayout(context.device, layoutInfo);
 
-	vk::raii::ShaderModule shaderModule = createShaderModule(context, readFile("shaders/slang.spv"));
+	vk::raii::ShaderModule shaderModule = createShaderModule(context, readFile(config.shaderPath));
 
-	vk::PipelineShaderStageCreateInfo vertShaderStageInfo{ .stage = vk::ShaderStageFlagBits::eVertex, .module = *shaderModule, .pName = "vertMain" };
-	vk::PipelineShaderStageCreateInfo fragShaderStageInfo{ .stage = vk::ShaderStageFlagBits::eFragment, .module = *shaderModule, .pName = "fragMain" };
+	vk::PipelineShaderStageCreateInfo vertShaderStageInfo{ .stage = vk::ShaderStageFlagBits::eVertex, .module = *shaderModule, .pName = config.vertexEntry.c_str()};
+	vk::PipelineShaderStageCreateInfo fragShaderStageInfo{ .stage = vk::ShaderStageFlagBits::eFragment, .module = *shaderModule, .pName = config.fragEntry.c_str() };
 	vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-	auto                                   bindingDescription = Vertex::getBindingDescription();
-	auto                                   attributeDescriptions = Vertex::getAttributeDescriptions();
-	vk::PipelineVertexInputStateCreateInfo vertexInputInfo{
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &bindingDescription,
-		.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
-		.pVertexAttributeDescriptions = attributeDescriptions.data() };
 	vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
-		.topology = vk::PrimitiveTopology::eTriangleList,
+		.topology = config.topology,
 		.primitiveRestartEnable = vk::False };
 	vk::PipelineViewportStateCreateInfo viewportState{
 		.viewportCount = 1,
@@ -37,7 +42,7 @@ Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthF
 	vk::PipelineRasterizationStateCreateInfo rasterizer{
 		.depthClampEnable = vk::False,
 		.rasterizerDiscardEnable = vk::False,
-		.polygonMode = vk::PolygonMode::eLine,
+		.polygonMode = config.polygonMode,
 		.cullMode = vk::CullModeFlagBits::eNone,
 		.frontFace = vk::FrontFace::eCounterClockwise,
 		.depthBiasEnable = vk::False };
@@ -46,8 +51,8 @@ Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthF
 		.rasterizationSamples = context.msaaSamples,
 		.sampleShadingEnable = vk::False };
 	vk::PipelineDepthStencilStateCreateInfo depthStencil{
-		.depthTestEnable = vk::True,
-		.depthWriteEnable = vk::True,
+		.depthTestEnable = config.depthTest ? vk::True : vk::False,
+		.depthWriteEnable = config.depthWrite ? vk::True : vk::False,
 		.depthCompareOp = vk::CompareOp::eLess,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False };
@@ -70,6 +75,16 @@ Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthF
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo{ .setLayoutCount = 1, .pSetLayouts = &*descriptorSetLayout, .pushConstantRangeCount = 0 };
 
 	pipelineLayout = vk::raii::PipelineLayout(context.device, pipelineLayoutInfo);
+
+	vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+	if (config.hasVertexInput) {
+		auto                                   bindingDescription = Vertex::getBindingDescription();
+		auto                                   attributeDescriptions = Vertex::getAttributeDescriptions();
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+	}
 
 	vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {
 		{.stageCount = 2,

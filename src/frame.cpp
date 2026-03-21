@@ -51,6 +51,8 @@ void Frame::updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3
 	ubo.model = model;
 	ubo.view = view;
 	ubo.proj = proj;
+	ubo.invView = glm::inverse(view);
+	ubo.invProj = glm::inverse(proj);
 	ubo.lightDir = lightDir;
 
 	memcpy(uniformBufferMapped, &ubo, sizeof(ubo));

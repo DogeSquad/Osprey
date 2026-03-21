@@ -91,7 +91,8 @@ private:
 	vk::raii::DescriptorPool imguiPool = nullptr;
 	
 	osp::RenderAttachments renderAttachments;
-	osp::Pipeline pipeline;
+	osp::Pipeline mainPipeline;
+	osp::Pipeline backgroundPipeline;
 
 	vk::raii::DescriptorPool             descriptorPool = nullptr;
 	vk::raii::CommandPool                commandPool = nullptr;
@@ -261,7 +262,17 @@ private:
 	{
 		context.initContext(window);
 		swapChain = osp::Swapchain(context, *context.surface, window);
-		pipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context));
+		mainPipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context), {
+			.shaderPath = "shaders/main_shader.spv",
+			.polygonMode = vk::PolygonMode::eLine}
+		);
+		backgroundPipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context), {
+			.shaderPath = "shaders/horizon_gradient.spv",
+			.polygonMode = vk::PolygonMode::eFill,
+			.hasVertexInput = false,
+			.depthTest = false,
+			.depthWrite = false }
+		);
 		createCommandPool();
 		renderAttachments = osp::RenderAttachments(context, swapChain.extent, swapChain.surfaceFormat.format);
 		//createTrack();
@@ -973,7 +984,7 @@ private:
 	void createFrameResources()
 	{
 		for (auto& frame : frames) {
-			frame = osp::Frame(context, commandPool, descriptorPool, *pipeline.descriptorSetLayout);
+			frame = osp::Frame(context, commandPool, descriptorPool, *mainPipeline.descriptorSetLayout);
 		}
 	}
 
@@ -1048,16 +1059,23 @@ private:
 			.pColorAttachments = &colorAttachment,
 			.pDepthAttachment = &depthAttachment };
 
-		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.pipeline);
 		cmd.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChain.extent.width), static_cast<float>(swapChain.extent.height), 0.0f, 1.0f));
 		cmd.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChain.extent));
+
 		cmd.beginRendering(renderingInfo);
+		// Draw Background
+		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *backgroundPipeline.pipeline);
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *backgroundPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+		cmd.setDepthTestEnable(false);
+		cmd.draw(3, 1, 0, 0);
+
 
 		// Draw Ground
+		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, mainPipeline.pipeline);
 		cmd.bindVertexBuffers(0, *groundGridMesh->vertexBuffer.buffer, { 0 });
 		cmd.setDepthTestEnable(false);
 		cmd.bindIndexBuffer(*groundGridMesh->indexBuffer.buffer, 0, vk::IndexType::eUint32);
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
 		cmd.drawIndexed(groundGridMesh->data.indices.size(), 1, 0, 0, 0);
 
 		// Draw Track Mesh
@@ -1069,6 +1087,7 @@ private:
 			//cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
 			cmd.drawIndexed(trackMesh->mesh.data.indices.size(), 1, 0, 0, 0);
 		}
+
 		cmd.endRendering();
 
 		// Draw ImGui
