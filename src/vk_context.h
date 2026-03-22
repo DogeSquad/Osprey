@@ -21,7 +21,7 @@ struct VkContext
 	const std::vector<char const*> validationLayers = {
 		"VK_LAYER_KHRONOS_validation" };
 
-	std::vector<const char*> requiredDeviceExtension = {
+	const std::vector<const char*> requiredDeviceExtension = {
 		vk::KHRSwapchainExtensionName,
 		vk::KHRSpirv14ExtensionName,
 		vk::KHRSynchronization2ExtensionName,

@@ -45,7 +45,7 @@ Frame::Frame(VkContext& context, vk::raii::CommandPool& commandPool, vk::raii::D
 	inFlight = vk::raii::Fence(context.device, vk::FenceCreateInfo{ .flags = vk::FenceCreateFlagBits::eSignaled });
 }
 
-void Frame::updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3 lightDir)
+void Frame::updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3 lightDir, glm::vec3 cameraPos) const
 {
 	UniformBufferObject ubo{};
 	ubo.model = model;
@@ -54,6 +54,7 @@ void Frame::updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3
 	ubo.invView = glm::inverse(view);
 	ubo.invProj = glm::inverse(proj);
 	ubo.lightDir = lightDir;
+	ubo.cameraPos = cameraPos;
 
 	memcpy(uniformBufferMapped, &ubo, sizeof(ubo));
 }

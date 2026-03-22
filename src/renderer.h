@@ -134,7 +134,7 @@ private:
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+		window = glfwCreateWindow(WIDTH, HEIGHT, "Osprey", nullptr, nullptr);
 		glfwSetWindowUserPointer(window, this);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 	}
@@ -938,7 +938,7 @@ private:
 
 		glm::vec3 color{ 10.0f, 10.0f, 10.0f };
 		color /= 256.0f;
-		float gridHalfSize = 1000.0f;
+		float gridHalfSize = 2000.0f;
 		float spacing = 1.0f;
 		const int lineCount = static_cast<int>((gridHalfSize * 2.0f) / spacing) + 1;
 
@@ -1071,11 +1071,11 @@ private:
 
 
 		// Draw Ground
-		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, mainPipeline.pipeline);
+		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipeline);
 		cmd.bindVertexBuffers(0, *groundGridMesh->vertexBuffer.buffer, { 0 });
 		cmd.setDepthTestEnable(false);
 		cmd.bindIndexBuffer(*groundGridMesh->indexBuffer.buffer, 0, vk::IndexType::eUint32);
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
 		cmd.drawIndexed(groundGridMesh->data.indices.size(), 1, 0, 0, 0);
 
 		// Draw Track Mesh
@@ -1105,7 +1105,7 @@ private:
 		auto  currentTime = std::chrono::high_resolution_clock::now();
 		float time = std::chrono::duration<float>(currentTime - startTime).count();
 
-		frames[currentImage].updateUBO(glm::identity<glm::mat4>(), camera.view, camera.proj, glm::normalize(glm::vec3(0.0, 0.3, 1.0)));
+		frames[currentImage].updateUBO(glm::identity<glm::mat4>(), camera.view, camera.proj, glm::normalize(glm::vec3(0.0, 0.3, 1.0)), camera.position);
 	}
 
 	void drawFrame()

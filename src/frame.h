@@ -16,6 +16,7 @@ struct Frame {
 		alignas(16) glm::mat4 invView;
 		alignas(16) glm::mat4 invProj;
 		alignas(16) glm::vec3 lightDir;
+		alignas(16) glm::vec3 cameraPos;
 	};
 
 	// Resources
@@ -32,7 +33,7 @@ struct Frame {
 	Frame() = default;
 	Frame(VkContext& context, vk::raii::CommandPool& commandPool, vk::raii::DescriptorPool& descriptorPool, vk::DescriptorSetLayout layout);
 
-	void updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3 lightDir);
+	void updateUBO(glm::mat4 model, glm::mat4 view, glm::mat4 proj, glm::vec3 lightDir, glm::vec3 cameraPos) const;
 };
 
 } // namespace osp
