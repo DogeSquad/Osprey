@@ -93,6 +93,8 @@ private:
 	osp::RenderAttachments renderAttachments;
 	osp::Pipeline mainPipeline;
 	osp::Pipeline backgroundPipeline;
+	osp::Pipeline gridPipeline;
+	osp::Pipeline steelMaterialPipeline;
 
 	vk::raii::DescriptorPool             descriptorPool = nullptr;
 	vk::raii::CommandPool                commandPool = nullptr;
@@ -112,12 +114,15 @@ private:
 	osp::Camera camera;
 	osp::Track track;
 	std::unique_ptr<osp::TrackMesh> trackMesh;
+	std::unique_ptr<osp::TrackMesh> trackWireframeMesh;
 	std::unique_ptr<osp::Mesh> groundGridMesh;
 
 	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\coolCircuit.yaml";
 	std::string currentTrackFileName = "coolCircuit.yaml";
 
 	bool showAbout = false;
+
+	bool onlyShowWireframe = false;
 
 	// PHYSICS
 	float dt = 0.016666;
@@ -230,7 +235,8 @@ private:
 		}
 		if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
 		{
-			app->camera.toggleViewMode();
+			app->onlyShowWireframe = !app->onlyShowWireframe;
+			app->createTrack();
 		}
 		if (key == GLFW_KEY_LEFT_SHIFT)
 		{
@@ -266,12 +272,20 @@ private:
 			.shaderPath = "shaders/main_shader.spv",
 			.polygonMode = vk::PolygonMode::eLine}
 		);
+		steelMaterialPipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context), {
+			.shaderPath = "shaders/steel_material_shader.spv",
+			.polygonMode = vk::PolygonMode::eFill }
+		);
 		backgroundPipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context), {
 			.shaderPath = "shaders/horizon_gradient.spv",
 			.polygonMode = vk::PolygonMode::eFill,
 			.hasVertexInput = false,
 			.depthTest = false,
 			.depthWrite = false }
+		);
+		gridPipeline = osp::Pipeline(context, swapChain.surfaceFormat.format, osp::findDepthFormat(context), {
+			.shaderPath = "shaders/ground_grid.spv",
+			.polygonMode = vk::PolygonMode::eLine,}
 		);
 		createCommandPool();
 		renderAttachments = osp::RenderAttachments(context, swapChain.extent, swapChain.surfaceFormat.format);
@@ -651,7 +665,7 @@ private:
 
 			ImGui::End();
 
-			if (trackMesh)
+			if (trackMesh || trackWireframeMesh)
 			{
 				ImDrawList* drawList = ImGui::GetForegroundDrawList();
 
@@ -923,10 +937,17 @@ private:
 	void createTrack()
 	{
 		context.device.waitIdle();
-		trackMesh = std::make_unique<osp::TrackMesh>(context.device, context.physicalDevice, context.queue, commandPool);
-		trackMesh->track = track;
+		auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
+		viewedMesh = std::make_unique<osp::TrackMesh>(context.device, context.physicalDevice, context.queue, commandPool);
+		viewedMesh->track = track;
+
 		track.update();
-		trackMesh->generateMesh();
+		if (onlyShowWireframe) {
+			trackWireframeMesh->generateWireframeMesh();
+		}
+		else {
+			trackMesh->generateMesh();
+		}
 	}
 
 	void createGroundGrid()
@@ -972,7 +993,7 @@ private:
 	{
 		std::array poolSize{
 			vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-			vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_FRAMES_IN_FLIGHT) };
+			vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_FRAMES_IN_FLIGHT), };
 		vk::DescriptorPoolCreateInfo poolInfo{
 			.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
 			.maxSets = MAX_FRAMES_IN_FLIGHT,
@@ -1071,21 +1092,28 @@ private:
 
 
 		// Draw Ground
-		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipeline);
+		cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *gridPipeline.pipeline);
 		cmd.bindVertexBuffers(0, *groundGridMesh->vertexBuffer.buffer, { 0 });
-		cmd.setDepthTestEnable(false);
+		cmd.setDepthTestEnable(true);
 		cmd.bindIndexBuffer(*groundGridMesh->indexBuffer.buffer, 0, vk::IndexType::eUint32);
-		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+		cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *gridPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
 		cmd.drawIndexed(groundGridMesh->data.indices.size(), 1, 0, 0, 0);
 
 		// Draw Track Mesh
 		if (trackMesh != nullptr && trackMesh->mesh.data.indices.size() > 0)
 		{
-			cmd.bindVertexBuffers(0, *trackMesh->mesh.vertexBuffer.buffer, { 0 });
-			cmd.setDepthTestEnable(true);
-			cmd.bindIndexBuffer(*trackMesh->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
-			//cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline.pipelineLayout, 0, *descriptorSets[currentFrame], nullptr);
-			cmd.drawIndexed(trackMesh->mesh.data.indices.size(), 1, 0, 0, 0);
+			auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
+			if (onlyShowWireframe) {
+				cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipeline);
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+			}
+			else {
+				cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *steelMaterialPipeline.pipeline);
+				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *steelMaterialPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
+			}
+			cmd.bindVertexBuffers(0, *viewedMesh->mesh.vertexBuffer.buffer, { 0 });
+			cmd.bindIndexBuffer(*viewedMesh->mesh.indexBuffer.buffer, 0, vk::IndexType::eUint32);
+			cmd.drawIndexed(viewedMesh->mesh.data.indices.size(), 1, 0, 0, 0);
 		}
 
 		cmd.endRendering();

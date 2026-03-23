@@ -141,7 +141,6 @@ static void setColumn(glm::mat4& mat, glm::vec3 colVec, size_t index)
 struct Track 
 {
 	PiecewiseLinearCurve curve;
-
 	std::vector<float> roll;
 
 	void load(const std::string& path) 

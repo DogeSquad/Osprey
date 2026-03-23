@@ -56,9 +56,15 @@ Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthF
 		.depthCompareOp = vk::CompareOp::eLess,
 		.depthBoundsTestEnable = vk::False,
 		.stencilTestEnable = vk::False };
-	vk::PipelineColorBlendAttachmentState colorBlendAttachment;
-	colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-	colorBlendAttachment.blendEnable = vk::False;
+	vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+		.blendEnable = vk::True,
+		.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+		.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+		.colorBlendOp = vk::BlendOp::eAdd,
+		.srcAlphaBlendFactor = vk::BlendFactor::eOne,
+		.dstAlphaBlendFactor = vk::BlendFactor::eZero,
+		.alphaBlendOp = vk::BlendOp::eAdd,
+		.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA};
 
 	vk::PipelineColorBlendStateCreateInfo colorBlending{
 		.logicOpEnable = vk::False,

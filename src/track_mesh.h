@@ -38,7 +38,133 @@ struct TrackMesh
 	{
 	}
 
+	void generateCrossTies(
+		const std::vector<glm::vec3>& positions,
+		const std::vector<glm::mat3>& frames,
+		float spacing, float width, float thickness)
+	{
+		auto& vertices = mesh.data.vertices;
+		auto& indices = mesh.data.indices;
+	}
+
+	void generateTube(
+		const std::vector<glm::vec3>& positions,
+		const std::vector<glm::mat3>& frames,
+		float offset, float radius, int segments, glm::vec3 color) 
+	{
+		auto& vertices = mesh.data.vertices;
+		auto& indices = mesh.data.indices;
+
+		uint32_t baseVertex = vertices.size();
+
+		for (int i = 0; i < positions.size(); i++) {
+			glm::vec3 right = frames[i][0];
+			glm::vec3 up = frames[i][1];
+			glm::vec3 center = positions[i] + offset * right;
+
+			for (int s = 0; s < segments; s++) {
+				float angle = (float)s / segments * glm::two_pi<float>();
+				glm::vec3 normal = glm::cos(angle) * right + glm::sin(angle) * up;
+				glm::vec3 pos = center + normal * radius;
+
+				vertices.push_back({
+					pos,
+					color,
+					glm::vec2((float)s / segments, (float)i / positions.size()),
+					normal
+				});
+
+				// Indices
+				if (i == positions.size() - 1) continue;
+
+				uint32_t a = baseVertex + i * segments + s;
+				uint32_t b = baseVertex + i * segments + (s + 1) % segments;
+				uint32_t c = baseVertex + (i + 1) * segments + s;
+				uint32_t d = baseVertex + (i + 1) * segments + (s + 1) % segments;
+
+				indices.push_back(a);
+				indices.push_back(c);
+				indices.push_back(b);
+
+				indices.push_back(b);
+				indices.push_back(c);
+				indices.push_back(d);
+			}
+		}
+	}
+
+	void generateCrossTie(
+		glm::vec3 center, glm::vec3 right, glm::vec3 up,
+		glm::vec3 forward, float railOffset, glm::vec3 color)
+	{
+		float tieRadius = 0.008f;
+		int   segments = 10; // fewer segments since ties are thin
+
+		glm::vec3 leftPos = center - right * railOffset;
+		glm::vec3 rightPos = center + right * railOffset;
+
+		// build two positions and frames for a single tube segment
+		std::vector<glm::vec3> tiePositions = { leftPos, rightPos };
+
+		// for the tie, "forward" is along right axis
+		// so we need a frame where right/up are perpendicular to the tie direction
+		glm::vec3 tieForward = glm::normalize(rightPos - leftPos);
+		glm::vec3 tieRight = forward; // track forward becomes tie's radial axis
+		glm::vec3 tieUp = glm::normalize(glm::cross(tieForward, tieRight));
+		tieRight = glm::normalize(glm::cross(tieUp, tieForward));
+
+		std::vector<glm::mat3> tieFrames = {
+			glm::mat3(tieRight, tieUp, tieForward),
+			glm::mat3(tieRight, tieUp, tieForward)
+		};
+
+		generateTube(tiePositions, tieFrames, 0.0f, tieRadius, segments, color);
+	}
+
 	void generateMesh()
+	{
+		mesh.data.vertices.clear();
+		mesh.data.indices.clear();
+
+		float railOffset = 0.075f;
+		float railRadius = 0.015f;
+		int segments = 30;
+		float sampleSpacing = 0.01f;
+		int   tieEvery = 50;
+
+		glm::vec3 color{ 0.95f, 0.05f, 0.1f };
+
+		std::vector<glm::vec3> positions;
+		std::vector<glm::mat3> frames;
+
+		float totalLength = track.curve.cumulativeLengths.back();
+		int numSamples = static_cast<int>(totalLength / sampleSpacing);
+
+		for (int i = 0; i <= numSamples; i++) {
+			float s = (float)i / (float)numSamples * totalLength;
+			glm::vec3 pos = track.curve.evaluate(s);
+			glm::mat4 fren = track.evaluateFrenetInterpolated(s);
+
+			glm::vec3 right = glm::vec3(fren[0]);
+			glm::vec3 up = glm::vec3(fren[1]);
+			glm::vec3 forward = glm::vec3(fren[2]);
+
+			positions.push_back(pos);
+			frames.push_back(glm::mat3(right, up, forward));
+		}
+
+		generateTube(positions, frames, -railOffset, railRadius, segments, color);
+		generateTube(positions, frames, railOffset, railRadius, segments, color);
+
+		// cross ties
+		for (int i = 0; i < positions.size(); i += tieEvery) {
+			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], railOffset, color);
+		}
+
+		mesh.upload();
+	}
+
+	void generateWireframeMesh()
 	{
 		mesh.data.vertices.clear();
 		mesh.data.indices.clear();
@@ -131,200 +257,6 @@ struct TrackMesh
 			indices.push_back(3 * (i + 1) + 0);
 		}
 
-		mesh.upload();
-	}
-
-	void generateMesh3()
-	{
-		mesh.data.vertices.clear();
-		mesh.data.indices.clear();
-
-		glm::vec3 tubeColor{ 170, 50, 50 };
-		tubeColor /= 256.0;
-		float tubeRadius = 0.01f;
-		int   verticesPerRing = 15;
-		int   ringsPerNode = 2;
-
-		std::vector<Vertex>& vertices = mesh.data.vertices;
-		std::vector<uint32_t>& indices = mesh.data.indices;
-		const std::vector<glm::vec3>& nodePositions = track.curve.controlPoints;
-		const std::vector<glm::vec3>& nodeTangents = track.curve.controlTangents;
-		const std::vector<float>& nodeRoll = track.roll;
-
-		glm::vec3 prevForward;
-		glm::vec3 prevRight;
-		glm::vec3 prevUp;
-		bool first = true;
-		glm::vec3 transportRight;
-		glm::vec3 transportUp;
-
-		for (int i = 0; i < nodePositions.size(); i++)
-		{
-			glm::vec3 position = nodePositions[i];
-			// Construct Frenet Frame
-			//glm::vec3 forward = glm::normalize(nodeTangents[i]);
-
-			//glm::mat3 rotation = glm::rotate(glm::radians((float)nodeRoll[i]), forward);
-			//glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
-			//glm::vec3 up = rotation * glm::normalize(glm::cross(forward, right));
-			//	
-			glm::vec3 forward = glm::normalize(nodeTangents[i]);
-
-			if (first)
-			{
-				glm::vec3 upGuess = UP_DIR;
-				if (glm::abs(glm::dot(upGuess, forward)) > 0.9f)
-					upGuess = glm::vec3(1, 0, 0);
-
-				prevRight = glm::normalize(glm::cross(forward, upGuess));
-				prevUp = glm::cross(prevRight, forward);
-				transportRight = glm::normalize(glm::cross(forward, upGuess));
-				transportUp = glm::cross(transportRight, forward);
-				first = false;
-			}
-			else
-			{
-				// Parallel transport
-				glm::vec3 axis = glm::cross(prevForward, forward);
-				float len = glm::length(axis);
-
-				if (len > 1e-5f)
-				{
-					axis /= len;
-					float angle = glm::acos(glm::clamp(glm::dot(prevForward, forward), -1.0f, 1.0f));
-					transportRight = glm::rotate(transportRight, angle, axis);
-					transportUp = glm::cross(transportRight, forward);
-				}
-			}
-			float roll = glm::radians((float)nodeRoll[i]);
-
-			glm::vec3 right = glm::rotate(transportRight, roll, forward);
-			glm::vec3 up = glm::rotate(transportUp, roll, forward);
-			prevForward = forward;
-			transportRight = glm::normalize(transportRight);
-			transportUp = glm::normalize(glm::cross(forward, transportRight));
-
-			// Construct Geometry
-			glm::vec3 tubeCenter = position + -right * 1.0;
-
-			auto appendVerticesRing = [&](glm::vec3 tubeCenter)
-			{
-				for (int v = 0; v < verticesPerRing; v++)
-				{
-					float radians = (v / (float)verticesPerRing) * glm::two_pi<float>();
-					glm::vec3 vertexPosition(nodePositions[i]);
-					vertexPosition += tubeRadius * right * glm::cos(glm::half_pi<float>() + radians);
-					vertexPosition += tubeRadius * up * glm::sin(glm::half_pi<float>() + radians);
-
-					vertices.push_back({ vertexPosition, tubeColor, {0.0, 0.0}, glm::normalize(vertexPosition - tubeCenter) });
-				}
-			};
-			appendVerticesRing(tubeCenter);
-			tubeCenter = position + right * 1.0;
-			appendVerticesRing(tubeCenter);
-
-			if (i == nodePositions.size() - 1)
-			{
-				break;
-			}
-
-			uint32_t currBase = i * ringsPerNode * verticesPerRing;
-			uint32_t nextBase = (i + 1) * ringsPerNode * verticesPerRing;
-			for (int r = 0; r < ringsPerNode; r++)
-			{
-				uint32_t ringOffset = r * verticesPerRing;
-
-				for (int v = 0; v < verticesPerRing; v++)
-				{
-					uint32_t v0 = currBase + ringOffset + v;
-					uint32_t v1 = currBase + ringOffset + (v + 1) % verticesPerRing;
-					uint32_t v2 = nextBase + ringOffset + (v + 1) % verticesPerRing;
-					uint32_t v3 = nextBase + ringOffset + v;
-
-					// First triangle
-					indices.push_back(v0);
-					indices.push_back(v1);
-					indices.push_back(v2);
-
-					// Second triangle
-					indices.push_back(v2);
-					indices.push_back(v3);
-					indices.push_back(v0);
-				}
-			}
-		}
-
-		mesh.upload();
-	}
-
-	void generateMesh2()
-	{
-		mesh.data.vertices.clear();
-		mesh.data.indices.clear();
-
-		// An example of generating tube vertices aligned along the x-axis. NOTE: Calculations rely heavily on predefined function and it being only defined along X.
-		glm::vec3 tubeColor{ 170, 50, 50 };
-		tubeColor /= 256.0;
-		int                    numNodes = 350;
-		std::vector<glm::vec3> nodePositions;
-		std::vector<glm::vec3> nodeForwards;
-		std::vector<glm::vec3> nodeUps;
-		nodePositions.reserve(numNodes);
-		nodeUps.reserve(numNodes);
-		for (int i = 0; i < numNodes; i++)
-		{
-			float thetaPercent = i / float(numNodes);
-			float x = 2.0f * thetaPercent - 1.0f;
-			float y = 0.2f * glm::sin(30.0f * thetaPercent);
-			nodePositions.push_back({ x, y, 0.0 });
-
-			float dx = 2.0f;
-			float dy = 6.0f * glm::cos(30.0f * thetaPercent);
-			nodeForwards.push_back(glm::normalize(glm::vec3{ dx, dy, 0.0f }));
-
-			nodeUps.push_back(glm::rotate(nodeForwards[i], -glm::half_pi<float>(), { 0.0f, 0.0, 1.0 }));
-		}
-
-
-		float tubeRadius = 0.01;
-		int   verticesPerNode = 15;
-		int   i = 0;
-		for (; i < nodePositions.size(); i++)
-		{
-			float percentAlong = i / float(nodePositions.size());
-			for (int v = 0; v < verticesPerNode; v++)
-			{
-				float radians = (v / (float)verticesPerNode) * glm::two_pi<float>();
-
-				glm::vec3 vertexPosition(nodePositions[i]);
-				vertexPosition.z += tubeRadius * glm::cos(glm::half_pi<float>() + radians);
-				vertexPosition += tubeRadius * nodeUps[i] * glm::sin(glm::half_pi<float>() + radians);
-
-				mesh.data.vertices.push_back({ vertexPosition, tubeColor, {0.0, 0.0}, glm::normalize(vertexPosition - nodePositions[i]) });
-
-				// We do not index the last ring of vertices.
-				if (i == nodePositions.size() - 1)
-					continue;
-
-				mesh.data.indices.push_back(i * verticesPerNode + v);
-				mesh.data.indices.push_back(i * verticesPerNode + ((v + 1) % verticesPerNode));
-				mesh.data.indices.push_back((i + 1) * verticesPerNode + ((v + 1) % verticesPerNode));
-
-				mesh.data.indices.push_back((i + 1) * verticesPerNode + ((v + 1) % verticesPerNode));
-				mesh.data.indices.push_back((i + 1) * verticesPerNode + v);
-				mesh.data.indices.push_back(i * verticesPerNode + v);
-			}
-		}
-
-		for (i = verticesPerNode; i < nodePositions.size() - verticesPerNode; i++)
-		{
-			glm::vec3 vertPos = mesh.data.vertices[i].pos;
-			glm::vec3 backCross = glm::cross(mesh.data.vertices[i - verticesPerNode].pos - vertPos, mesh.data.vertices[i - 1].pos - vertPos);
-			glm::vec3 forwardCross = glm::cross(mesh.data.vertices[i + verticesPerNode].pos - vertPos, mesh.data.vertices[i + 1].pos - vertPos);
-			glm::vec3 interpolatedNormal = glm::mix(backCross, forwardCross, 0.5f);
-			mesh.data.vertices[i].normal = glm::normalize(interpolatedNormal);
-		}
-		
 		mesh.upload();
 	}
 };

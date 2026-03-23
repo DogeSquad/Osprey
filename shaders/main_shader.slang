@@ -12,6 +12,7 @@ struct UniformBuffer {
     float4x4 invView;
     float4x4 invProj;
     float3 lightDir;
+    float3 cameraPos;
 };
 ConstantBuffer<UniformBuffer> ubo;
 
