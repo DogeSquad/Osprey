@@ -22,12 +22,15 @@ struct VSOutput
     float3 fragColor;
     float2 fragTexCoord;
     float3 fragNormal;
+    float3 posWorld;
 };
 
 [shader("vertex")]
 VSOutput vertMain(VSInput input) {
     VSOutput output;
-    output.pos = mul(ubo.proj, mul(ubo.view, mul(ubo.model, float4(input.inPosition, 1.0))));
+    float4 world = mul(ubo.model, float4(input.inPosition, 1.0));
+    output.posWorld = world.xyz;
+    output.pos = mul(ubo.proj, mul(ubo.view, world));
     output.fragColor = input.inColor;
     output.fragTexCoord = input.inTexCoord;
     output.fragNormal = input.inNormal;
@@ -36,6 +39,21 @@ VSOutput vertMain(VSInput input) {
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    float attenuation = clamp(dot(vertIn.fragNormal, ubo.lightDir), 0.0, 1.0);
-    return float4(vertIn.fragColor * (0.8 * attenuation + 0.2), 1.0);
+    float3 normal = normalize(vertIn.fragNormal);
+    float3 lightDir = normalize(ubo.lightDir);
+    float3 viewDir = normalize(ubo.cameraPos - vertIn.posWorld);
+    float3 halfDir = normalize(lightDir + viewDir);
+
+    float ambientStrength = 0.15f;
+    float3 ambient = ambientStrength * vertIn.fragColor;
+
+    float diff = max(dot(normal, lightDir), 0.0);
+    float3 diffuse = diff * vertIn.fragColor;
+
+    float shininess = 64.0;
+    float spec = pow(max(dot(normal, halfDir), 0.0), shininess);
+    float3 specular = spec * float3(1.0, 1.0, 1.0);
+
+    float3 result = ambient + diffuse + specular;
+    return float4(result, 1.0);
 }

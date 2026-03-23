@@ -132,7 +132,8 @@ struct TrackMesh
 		float sampleSpacing = 0.01f;
 		int   tieEvery = 50;
 
-		glm::vec3 color{ 0.95f, 0.05f, 0.1f };
+		//glm::vec3 color{ 0.95f, 0.05f, 0.1f };
+		glm::vec3 color{ 0.0f, 0.05f, 0.95f };
 
 		std::vector<glm::vec3> positions;
 		std::vector<glm::mat3> frames;
