@@ -9,8 +9,8 @@ Frame::Frame(VkContext& context, vk::raii::CommandPool& commandPool, vk::raii::D
 	// Set up descriptor sets
 	vk::DeviceSize         bufferSize = sizeof(UniformBufferObject);
 
-	createBuffer(context, bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, uniformBuffer, uniformBufferMemory);
-	uniformBufferMapped = uniformBufferMemory.mapMemory(0, bufferSize);
+	uniformBuffer = GpuBuffer(context, bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+	uniformBufferMapped = uniformBuffer.bufferMemory.mapMemory(0, bufferSize);
 
 	vk::DescriptorSetAllocateInfo descriptorAllocInfo{
 		.descriptorPool = descriptorPool,
@@ -19,7 +19,7 @@ Frame::Frame(VkContext& context, vk::raii::CommandPool& commandPool, vk::raii::D
 	descriptorSet = std::move(context.device.allocateDescriptorSets(descriptorAllocInfo).front());
 
 	vk::DescriptorBufferInfo bufferInfo{
-		.buffer = uniformBuffer,
+		.buffer = uniformBuffer.buffer,
 		.offset = 0,
 		.range = sizeof(UniformBufferObject) 
 	};

@@ -15,28 +15,10 @@ namespace osp
 
 struct TrackMesh
 {
-	const vk::raii::Device& device;
-	const vk::raii::PhysicalDevice& physicalDevice;
-	const vk::raii::Queue& queue;
-	const vk::raii::CommandPool& commandPool;
-
 	Mesh mesh;
 	Track track;
 
-	TrackMesh(
-		const vk::raii::Device& device,
-		const vk::raii::PhysicalDevice& physicalDevice,
-		const vk::raii::Queue& queue,
-		const vk::raii::CommandPool& commandPool
-	)
-		: device(device)
-		, physicalDevice(physicalDevice)
-		, queue(queue)
-		, commandPool(commandPool)
-		, mesh(device, physicalDevice, queue, commandPool)
-		, track()
-	{
-	}
+	TrackMesh() = default;
 
 	void generateCrossTies(
 		const std::vector<glm::vec3>& positions,
@@ -161,8 +143,6 @@ struct TrackMesh
 		for (int i = 0; i < positions.size(); i += tieEvery) {
 			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], railOffset, color);
 		}
-
-		mesh.upload();
 	}
 
 	void generateWireframeMesh()
@@ -257,8 +237,11 @@ struct TrackMesh
 			indices.push_back(3 * (i + 1) + 2);
 			indices.push_back(3 * (i + 1) + 0);
 		}
+	}
 
-		mesh.upload();
+	void upload(VkContext& context, vk::raii::CommandPool& commandPool)
+	{
+		mesh.upload(context, commandPool);
 	}
 };
 

@@ -19,6 +19,17 @@ inline uint32_t findMemoryType(VkContext& context, uint32_t typeFilter, vk::Memo
 	throw std::runtime_error("failed to find suitable memory type!");
 }
 
+inline void copyBuffer(VkContext& context, const vk::raii::CommandPool& commandPool, vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size)
+{
+	vk::CommandBufferAllocateInfo allocInfo{ .commandPool = *commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1 };
+	vk::raii::CommandBuffer       commandCopyBuffer = std::move(context.device.allocateCommandBuffers(allocInfo).front());
+	commandCopyBuffer.begin(vk::CommandBufferBeginInfo{ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
+	commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy{ .size = size });
+	commandCopyBuffer.end();
+	context.queue.submit(vk::SubmitInfo{ .commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer }, nullptr);
+	context.queue.waitIdle();
+}
+
 inline void createBuffer(VkContext& context, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::raii::Buffer& buffer, vk::raii::DeviceMemory& bufferMemory)
 {
 	vk::BufferCreateInfo bufferInfo{

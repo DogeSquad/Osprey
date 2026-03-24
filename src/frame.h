@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vk_context.h"
+#include "gpu_buffer.h"
 
 #include <vulkan/vulkan_raii.hpp>
 #include <glm/glm.hpp>
@@ -20,8 +21,7 @@ struct Frame {
 	};
 
 	// Resources
-	vk::raii::Buffer uniformBuffer = nullptr;
-	vk::raii::DeviceMemory uniformBufferMemory = nullptr;
+	GpuBuffer uniformBuffer;
 	void* uniformBufferMapped = nullptr;
 	vk::raii::DescriptorSet descriptorSet{ nullptr };
 

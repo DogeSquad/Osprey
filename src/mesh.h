@@ -18,11 +18,6 @@ namespace osp
 
 struct Mesh 
 {
-	const vk::raii::Device& device;
-	const vk::raii::PhysicalDevice& physicalDevice;
-	const vk::raii::Queue& queue;
-	const vk::raii::CommandPool& commandPool;
-
 	struct MeshData
 	{
 		std::vector<Vertex> vertices;
@@ -31,25 +26,12 @@ struct Mesh
 	GpuBuffer vertexBuffer;
 	GpuBuffer indexBuffer;
 
-	Mesh(
-		const vk::raii::Device& device,
-		const vk::raii::PhysicalDevice& physicalDevice,
-		const vk::raii::Queue& queue,
-		const vk::raii::CommandPool& commandPool
-	)
-		: device(device)
-		, physicalDevice(physicalDevice)
-		, queue(queue)
-		, commandPool(commandPool)
-		, vertexBuffer(device, physicalDevice, queue, commandPool)
-		, indexBuffer(device, physicalDevice, queue, commandPool)
-	{
-	}
+	Mesh() = default;
 
-	void upload()
+	void upload(VkContext& context, vk::raii::CommandPool& commandPool)
 	{
-		vertexBuffer.uploadData(sizeof(data.vertices[0]) * data.vertices.size(), vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, data.vertices.data());
-		indexBuffer.uploadData(sizeof(data.indices[0]) * data.indices.size(), vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, data.indices.data());
+		vertexBuffer.upload(context, commandPool, sizeof(data.vertices[0]) * data.vertices.size(), vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, data.vertices.data());
+		indexBuffer.upload(context, commandPool, sizeof(data.indices[0]) * data.indices.size(), vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer, data.indices.data());
 	}
 };
 

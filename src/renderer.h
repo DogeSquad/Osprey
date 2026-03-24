@@ -938,21 +938,23 @@ private:
 	{
 		context.device.waitIdle();
 		auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
-		viewedMesh = std::make_unique<osp::TrackMesh>(context.device, context.physicalDevice, context.queue, commandPool);
+		viewedMesh = std::make_unique<osp::TrackMesh>();
 		viewedMesh->track = track;
 
 		track.update();
 		if (onlyShowWireframe) {
 			trackWireframeMesh->generateWireframeMesh();
+			trackWireframeMesh->upload(context, commandPool);
 		}
 		else {
 			trackMesh->generateMesh();
+			trackMesh->upload(context, commandPool);
 		}
 	}
 
 	void createGroundGrid()
 	{
-		groundGridMesh = std::make_unique<osp::Mesh>(context.device, context.physicalDevice, context.queue, commandPool);
+		groundGridMesh = std::make_unique<osp::Mesh>();
 
 		std::vector<osp::Vertex>& vertices = groundGridMesh->data.vertices;
 		std::vector<uint32_t>& indices = groundGridMesh->data.indices;
@@ -986,7 +988,7 @@ private:
 			indices.push_back(index-1);
 		}
 
-		groundGridMesh->upload();
+		groundGridMesh->upload(context, commandPool);
 	}
 
 	void createDescriptorPool()
