@@ -8,21 +8,10 @@ namespace osp {
 
 Pipeline::Pipeline(VkContext& context, vk::Format colorFormat, vk::Format depthFormat, const Config& config)
 {
-	//struct Config {
-	//	std::string           shaderPath;
-	//	std::string           vertexEntry = "vertMain";
-	//	std::string           fragEntry = "fragMain";
-	//	vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
-	//	vk::PolygonMode       polygonMode = vk::PolygonMode::eFill;
-	//	bool                  hasVertexInput = true;
-	//	bool                  depthTest = true;
-	//	bool                  depthWrite = true;
-	//};
-	// .shaderPath = "shaders/slang.spv",
-	// .polygonMode = vk::PolygonMode::eLine,
 	std::array bindings = {
 		vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, nullptr),
-		vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment, nullptr) };
+		//vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment, nullptr) 
+	};
 
 	vk::DescriptorSetLayoutCreateInfo layoutInfo{ .bindingCount = static_cast<uint32_t>(bindings.size()), .pBindings = bindings.data() };
 	descriptorSetLayout = vk::raii::DescriptorSetLayout(context.device, layoutInfo);

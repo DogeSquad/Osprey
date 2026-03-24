@@ -25,12 +25,17 @@ inline vk::Format findSupportedFormat(VkContext& context, const std::vector<vk::
 	throw std::runtime_error("failed to find supported format!");
 }
 
-inline vk::Format findDepthFormat(VkContext& context)
+static vk::Format findDepthFormat(VkContext& context)
 {
 	return findSupportedFormat(context,
 		{ vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint },
 		vk::ImageTiling::eOptimal,
 		vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+}
+
+static bool hasStencilComponent(vk::Format format)
+{
+	return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
 }
 
 struct Image {

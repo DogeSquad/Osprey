@@ -16,18 +16,9 @@ namespace osp
 struct TrackMesh
 {
 	Mesh mesh;
-	Track track;
+	Track* track;
 
 	TrackMesh() = default;
-
-	void generateCrossTies(
-		const std::vector<glm::vec3>& positions,
-		const std::vector<glm::mat3>& frames,
-		float spacing, float width, float thickness)
-	{
-		auto& vertices = mesh.data.vertices;
-		auto& indices = mesh.data.indices;
-	}
 
 	void generateTube(
 		const std::vector<glm::vec3>& positions,
@@ -105,6 +96,8 @@ struct TrackMesh
 
 	void generateMesh()
 	{
+		if (!track) return;
+
 		mesh.data.vertices.clear();
 		mesh.data.indices.clear();
 
@@ -120,13 +113,13 @@ struct TrackMesh
 		std::vector<glm::vec3> positions;
 		std::vector<glm::mat3> frames;
 
-		float totalLength = track.curve.cumulativeLengths.back();
+		float totalLength = track->totalLength();
 		int numSamples = static_cast<int>(totalLength / sampleSpacing);
 
 		for (int i = 0; i <= numSamples; i++) {
 			float s = (float)i / (float)numSamples * totalLength;
-			glm::vec3 pos = track.curve.evaluate(s);
-			glm::mat4 fren = track.evaluateFrenetInterpolated(s);
+			glm::mat4 fren = track->evaluateFrenetInterpolated(s);
+			glm::vec3 pos = fren[3];
 
 			glm::vec3 right = glm::vec3(fren[0]);
 			glm::vec3 up = glm::vec3(fren[1]);
@@ -147,6 +140,8 @@ struct TrackMesh
 
 	void generateWireframeMesh()
 	{
+		if (!track) return;
+
 		mesh.data.vertices.clear();
 		mesh.data.indices.clear();
 
@@ -158,9 +153,12 @@ struct TrackMesh
 
 		std::vector<Vertex>& vertices = mesh.data.vertices;
 		std::vector<uint32_t>& indices = mesh.data.indices;
-		const std::vector<glm::vec3>& nodePositions = track.curve.controlPoints;
-		const std::vector<glm::vec3>& nodeTangents = track.curve.controlTangents;
-		const std::vector<float>& nodeRoll = track.roll;
+
+		// TODO: Proper generation
+		PiecewiseLinearCurve* linCurve = dynamic_cast<PiecewiseLinearCurve*>(track->curve.get());
+		const std::vector<glm::vec3>& nodePositions = linCurve->controlPoints;
+		const std::vector<glm::vec3>& nodeTangents = linCurve->controlTangents;
+		const std::vector<float>& nodeRoll = track->roll;
 
 		for (int i = 0; i < nodePositions.size(); i++)
 		{

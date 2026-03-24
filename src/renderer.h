@@ -57,6 +57,7 @@ import vulkan_hpp;
 #include "render_attachments.h"
 #include "pipeline.h"
 #include "frame.h"
+#include "piecewise_linear_curve.h"
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -114,7 +115,7 @@ private:
 	osp::Camera camera;
 	std::unique_ptr<osp::Mesh> groundGridMesh;
 
-	osp::Track track;
+	std::unique_ptr<osp::Track> track;
 	std::unique_ptr<osp::TrackMesh> trackMesh;
 	std::unique_ptr<osp::TrackMesh> trackWireframeMesh;
 	bool trackDirty = false;
@@ -182,15 +183,15 @@ private:
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (app->showAbout) return;
 
-		if (app->lastHoveredControlPointIndex != -1)
+		if (app->track && app->lastHoveredControlPointIndex != -1)
 		{
-			float unclampedRoll = app->track.roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
-			app->track.roll[app->lastHoveredControlPointIndex] = unclampedRoll;
+			float unclampedRoll = app->track->roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
+			app->track->roll[app->lastHoveredControlPointIndex] = unclampedRoll;
 			if (unclampedRoll > 180.0f) {
-				app->track.roll[app->lastHoveredControlPointIndex] -= 360.0f;
+				app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
 			}
 			else if (unclampedRoll < -180.0f) {
-				app->track.roll[app->lastHoveredControlPointIndex] += 360.0f;
+				app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
 			}
 
 			app->trackDirty = true;
@@ -248,17 +249,17 @@ private:
 
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
 		{
-			if (!app->track.roll.empty())
+			if (app->track && !app->track->roll.empty())
 			{
-				app->track.addNextSegment();
+				app->track->addNextSegment();
 				app->trackDirty = true;
 			}
 		}
 		if (key == GLFW_KEY_BACKSPACE && action == GLFW_PRESS)
 		{
-			if (!app->track.roll.empty())
+			if (app->track && !app->track->roll.empty())
 			{
-				app->track.removeLastSegment();
+				app->track->removeLastSegment();
 				app->trackDirty = true;
 			}
 		}
@@ -365,8 +366,8 @@ private:
 			currentTrackFileName = std::filesystem::path(filePath).filename().string();
 		}
 		//device.waitIdle();
-		track = osp::Track();
-		track.load(std::string(filePath));
+		track = std::make_unique<osp::Track>();
+		track->load(std::string(filePath));
 		trackDirty = true;
 
 		u = 0.0f;
@@ -380,7 +381,7 @@ private:
 		{
 			return;
 		}
-		track.save(filePath);
+		track->save(filePath);
 	}
 
 	void initWorld() 
@@ -396,30 +397,31 @@ private:
 		camera.updateView(window, 0.0f);
 	}
 
-	void doPhysics()
+	void doPhysics(osp::PiecewiseLinearCurve* linCurve)
 	{
-		if (track.curve.cumulativeLengths.empty())
+		if (linCurve->cumulativeLengths.empty())
 			return;
+
 		float remainingTime = dt;
 		float dtSub = 0.001f; // max substep
 
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
-			glm::vec3 pos = track.curve.evaluate(s);
-			int segIndex = track.curve.getSegmentAtLength(s);
+			glm::vec3 pos = linCurve->evaluate(s);
+			int segIndex = linCurve->getSegmentAtLength(s);
 
 			// Clamp end
-			if (segIndex >= track.curve.controlPoints.size() - 1)
+			if (segIndex >= linCurve->controlPoints.size() - 1)
 			{
 				v = 0;
 				return;
 			}
 
-			float segLen = track.curve.segmentLengths[segIndex];
+			float segLen = linCurve->segmentLengths[segIndex];
 
-			glm::vec3 p0 = track.curve.controlPoints[segIndex];
-			glm::vec3 p1 = track.curve.controlPoints[segIndex + 1];
+			glm::vec3 p0 = linCurve->controlPoints[segIndex];
+			glm::vec3 p1 = linCurve->controlPoints[segIndex + 1];
 			glm::vec3 tangent = glm::normalize(p1 - p0);
 
 			float a = 0.001f * 9.81f * glm::dot(GRAVITY, tangent);
@@ -437,127 +439,9 @@ private:
 
 			// Clamp s to track
 			if (s < 0) { s = 0; v = 0; }
-			if (s > track.curve.cumulativeLengths.back()) { s = track.curve.cumulativeLengths.back(); v = 0; }
+			if (s > linCurve->cumulativeLengths.back()) { s = linCurve->cumulativeLengths.back(); v = 0; }
 
 			remainingTime -= step;
-		}
-	}
-
-	void doPhysics2()
-	{
-		const float eps = 1e-5f;
-		if (track.curve.cumulativeLengths.empty())
-			return;
-		float remainingTime = dt;
-
-		while (remainingTime > 0.0f)
-		{
-			// Clamp s inside track
-			s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.back());
-
-			// ----------- Locate current segment -----------
-			float dist = s;
-			int segIndex = track.curve.getSegmentAtLength(s);
-
-			// Clamp end
-			if (segIndex >= track.curve.controlPoints.size() - 1)
-			{
-				v = 0;
-				return;
-			}
-
-			float segLen = track.curve.segmentLengths[segIndex];
-
-			glm::vec3 p0 = track.curve.controlPoints[segIndex];
-			glm::vec3 p1 = track.curve.controlPoints[segIndex+1];
-			glm::vec3 tangent = glm::normalize(p1 - p0);
-
-			// Gravity projection onto tangent
-			float a = 0.01f * glm::dot(GRAVITY, tangent);
-
-			float v0 = v;
-			float tMax = remainingTime;
-
-			// Predicted velocity
-			float v1 = v0 + a * tMax;
-
-			// Predicted displacement along tangent
-			float ds = v0 * tMax + 0.5f * a * tMax * tMax;
-
-			// ------------------ FORWARD MOTION ------------------
-			if (ds > 0.0f)
-			{
-				float segRemaining = segLen - dist;
-
-				if (ds < segRemaining)
-				{
-					// Does not reach boundary -> simple update
-					s += ds;
-					v = v1;
-					return;
-				}
-
-				// Reaches next boundary -> compute exact hit time
-				float A = 0.5f * a;
-				float B = v0;
-				float C = -segRemaining;
-
-				float dtHit;
-				if (fabs(a) < 1e-6f)     // linear motion
-					dtHit = segRemaining / v0;
-				else
-				{
-					float disc = B * B - 4 * A * C;
-					dtHit = (-B + sqrt(disc)) / (2 * A);
-				}
-
-				// Move exactly to segment end
-				s += segRemaining;
-				v += a * dtHit;
-
-				remainingTime -= dtHit;
-				continue;
-			}
-
-			// ------------------ BACKWARD MOTION ------------------
-			if (ds < 0.0f)
-			{
-				float segRemainingBack = dist;  // distance to previous segment
-
-				if (-ds < segRemainingBack)
-				{
-					// Does not reach previous boundary
-					s += ds;  // ds is negative
-					v = v1;
-					return;
-				}
-
-				// Hits previous boundary -> compute exact hit time
-				float A = 0.5f * a;
-				float B = v0;
-				float C = segRemainingBack; // positive number
-
-				float dtHit;
-				if (fabs(a) < 1e-6f)
-					dtHit = segRemainingBack / fabs(v0);
-				else
-				{
-					float disc = B * B - 4 * A * C;
-					dtHit = (-B - sqrt(disc)) / (2 * A); // minus sign for backward
-				}
-
-				dtHit = fabs(dtHit);
-
-				// Move exactly to previous boundary
-				s -= segRemainingBack;
-				v += a * dtHit;
-
-				remainingTime -= dtHit;
-				continue;
-			}
-
-			// ------------------ No movement (ds=0), gravity aligned? ------------------
-			return;
 		}
 	}
 
@@ -577,7 +461,6 @@ private:
 			camera.updateView(window, 0.0f);
 
 			ImGuizmo::SetRect(0, 0, swapChain.extent.width, swapChain.extent.height);
-			showTranslateOnHover();
 			if (ImGui::BeginMainMenuBar())
 			{
 				if (ImGui::BeginMenu("File"))
@@ -644,47 +527,7 @@ private:
 				| ImGuiWindowFlags_NoSavedSettings
 				| ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-			ImGui::Begin("Track Controls", nullptr, flags);
-
-			if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
-			{
-				s = track.curve.normalizedToArcLength(u);
-				v = 0;
-			}
-			else 
-			{
-				if (doSimulate)
-				{
-					doPhysics();
-				}
-				s = glm::clamp(s, 0.0f, track.curve.cumulativeLengths.empty() ? 0.0f : track.curve.cumulativeLengths.back());
-				u = track.curve.arcLengthToNormalized(s);
-			}
-			ImGui::Checkbox("Simulate Physics", &doSimulate);
-
-			ImGui::End();
-
-			if (trackMesh || trackWireframeMesh)
-			{
-				ImDrawList* drawList = ImGui::GetForegroundDrawList();
-
-				glm::vec3 curvePos = track.curve.evaluate(s);
-				glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChain.extent.width, swapChain.extent.height);
-				float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
-				//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
-
-				glm::mat4 proj(camera.proj);
-				proj[1][1] *= -1;
-				glm::mat4 frenet = track.evaluateFrenetInterpolated(s);
-				glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
-				model[3][3] = 1.0f;
-				model[3][1] += 0.05f;
-				model = frenet * model;
-				glm::mat4 id = glm::identity<glm::mat4>();
-				ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
-				//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
-			}
-
+			// Handle About Section
 			if (showAbout) {
 				ImGuiIO& io = ImGui::GetIO();
 				ImVec2 viewportSize = io.DisplaySize;
@@ -716,7 +559,7 @@ private:
 					ImGui::Text("Osprey v0.1");
 					ImGui::Separator();
 
-					const char* text = 
+					const char* text =
 						"Copyright [2026] Lennart S\n"
 						"\n"
 						"Licensed under the Apache License, Version 2.0 (the \"License\");\n"
@@ -740,13 +583,60 @@ private:
 
 				ImGui::PopStyleColor();
 			}
+
+			// Dependence on loaded track
+			if (track) {
+				auto linCurve = dynamic_cast<osp::PiecewiseLinearCurve*>(track->curve.get());
+
+				showTranslateOnHover(linCurve);
+				ImGui::Begin("Track Controls", nullptr, flags);
+
+				if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
+				{
+					s = linCurve->normalizedToArcLength(u);
+					v = 0;
+				}
+				else
+				{
+					if (doSimulate)
+					{
+						doPhysics(linCurve);
+					}
+					s = glm::clamp(s, 0.0f, linCurve->cumulativeLengths.empty() ? 0.0f : linCurve->cumulativeLengths.back());
+					u = linCurve->arcLengthToNormalized(s);
+				}
+				ImGui::Checkbox("Simulate Physics", &doSimulate);
+
+				ImGui::End();
+
+				if (trackMesh || trackWireframeMesh)
+				{
+					ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+					glm::vec3 curvePos = linCurve->evaluate(s);
+					glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChain.extent.width, swapChain.extent.height);
+					float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
+					//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+
+					glm::mat4 proj(camera.proj);
+					proj[1][1] *= -1;
+					glm::mat4 frenet = track->evaluateFrenetInterpolated(s);
+					glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
+					model[3][3] = 1.0f;
+					model[3][1] += 0.05f;
+					model = frenet * model;
+					glm::mat4 id = glm::identity<glm::mat4>();
+					ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
+					//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
+				}
+			}
 			ImGui::EndFrame();
 
 			ImGui::Render();
-
 			drawFrame();
 		}
 
+		// TODO: is this needed???
 		context.device.waitIdle();
 
 		endTime = glfwGetTime();
@@ -790,10 +680,10 @@ private:
 		camera.updateProj(window, 0.0f);
 	}
 
-	void showTranslateOnHover()
+	void showTranslateOnHover(osp::PiecewiseLinearCurve* linCurve)
 	{
 		if (showAbout) return;
-		std::vector<glm::vec3>& controlPoints = track.curve.controlPoints;
+		std::vector<glm::vec3>& controlPoints = linCurve->controlPoints;
 		if (ImGuizmo::IsUsing() && lastHoveredControlPointIndex != -1)
 		{
 			glm::mat4 proj(camera.proj);
@@ -848,91 +738,6 @@ private:
 		commandPool = vk::raii::CommandPool(context.device, poolInfo);
 	}
 
-	static bool hasStencilComponent(vk::Format format)
-	{
-		return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
-	}
-
-	void generateMipmaps(vk::raii::Image& image, vk::Format imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels)
-	{
-		// Check if image format supports linear blit-ing
-		vk::FormatProperties formatProperties = context.physicalDevice.getFormatProperties(imageFormat);
-
-		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear))
-		{
-			throw std::runtime_error("texture image format does not support linear blitting!");
-		}
-
-		std::unique_ptr<vk::raii::CommandBuffer> commandBuffer = beginSingleTimeCommands();
-
-		vk::ImageMemoryBarrier barrier = { .srcAccessMask = vk::AccessFlagBits::eTransferWrite, .dstAccessMask = vk::AccessFlagBits::eTransferRead, .oldLayout = vk::ImageLayout::eTransferDstOptimal, .newLayout = vk::ImageLayout::eTransferSrcOptimal, .srcQueueFamilyIndex = vk::QueueFamilyIgnored, .dstQueueFamilyIndex = vk::QueueFamilyIgnored, .image = image };
-		barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = 1;
-		barrier.subresourceRange.levelCount = 1;
-
-		int32_t mipWidth = texWidth;
-		int32_t mipHeight = texHeight;
-
-		for (uint32_t i = 1; i < mipLevels; i++)
-		{
-			barrier.subresourceRange.baseMipLevel = i - 1;
-			barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-			barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
-			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-			barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
-
-			commandBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
-
-			vk::ArrayWrapper1D<vk::Offset3D, 2> offsets, dstOffsets;
-			offsets[0] = vk::Offset3D(0, 0, 0);
-			offsets[1] = vk::Offset3D(mipWidth, mipHeight, 1);
-			dstOffsets[0] = vk::Offset3D(0, 0, 0);
-			dstOffsets[1] = vk::Offset3D(mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1);
-			vk::ImageBlit blit = { .srcSubresource = {}, .srcOffsets = offsets, .dstSubresource = {}, .dstOffsets = dstOffsets };
-			blit.srcSubresource = vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, i - 1, 0, 1);
-			blit.dstSubresource = vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, i, 0, 1);
-
-			commandBuffer->blitImage(image, vk::ImageLayout::eTransferSrcOptimal, image, vk::ImageLayout::eTransferDstOptimal, { blit }, vk::Filter::eLinear);
-
-			barrier.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
-			barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-			barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
-			barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-			commandBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, barrier);
-
-			if (mipWidth > 1)
-				mipWidth /= 2;
-			if (mipHeight > 1)
-				mipHeight /= 2;
-		}
-
-		barrier.subresourceRange.baseMipLevel = mipLevels - 1;
-		barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
-		barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-		barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-		commandBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, {}, {}, barrier);
-
-		endSingleTimeCommands(*commandBuffer);
-	}
-
-	void copyBufferToImage(const vk::raii::Buffer& buffer, const vk::raii::Image& image, uint32_t width, uint32_t height)
-	{
-		std::unique_ptr<vk::raii::CommandBuffer> commandBuffer = beginSingleTimeCommands();
-		vk::BufferImageCopy                      region{
-								 .bufferOffset = 0,
-								 .bufferRowLength = 0,
-								 .bufferImageHeight = 0,
-								 .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-								 .imageOffset = {0, 0, 0},
-								 .imageExtent = {width, height, 1} };
-		commandBuffer->copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, { region });
-		endSingleTimeCommands(*commandBuffer);
-	}
-
 	void createTrack()
 	{
 		for (auto& frame : frames) {
@@ -941,9 +746,9 @@ private:
 
 		auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
 		viewedMesh = std::make_unique<osp::TrackMesh>();
-		viewedMesh->track = track;
+		viewedMesh->track = track.get();
 
-		track.update();
+		track->update();
 		if (onlyShowWireframe) {
 			trackWireframeMesh->generateWireframeMesh();
 			trackWireframeMesh->upload(context, commandPool);
@@ -1012,41 +817,6 @@ private:
 		for (auto& frame : frames) {
 			frame = osp::Frame(context, commandPool, descriptorPool, *mainPipeline.descriptorSetLayout);
 		}
-	}
-
-	std::unique_ptr<vk::raii::CommandBuffer> beginSingleTimeCommands()
-	{
-		vk::CommandBufferAllocateInfo allocInfo{
-			.commandPool = commandPool,
-			.level = vk::CommandBufferLevel::ePrimary,
-			.commandBufferCount = 1 };
-		std::unique_ptr<vk::raii::CommandBuffer> commandBuffer = std::make_unique<vk::raii::CommandBuffer>(std::move(vk::raii::CommandBuffers(context.device, allocInfo).front()));
-
-		vk::CommandBufferBeginInfo beginInfo{
-			.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit };
-		commandBuffer->begin(beginInfo);
-
-		return commandBuffer;
-	}
-
-	void endSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const
-	{
-		commandBuffer.end();
-
-		vk::SubmitInfo submitInfo{ .commandBufferCount = 1, .pCommandBuffers = &*commandBuffer };
-		context.queue.submit(submitInfo, nullptr);
-		context.queue.waitIdle();
-	}
-
-	void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size)
-	{
-		vk::CommandBufferAllocateInfo allocInfo{ .commandPool = commandPool, .level = vk::CommandBufferLevel::ePrimary, .commandBufferCount = 1 };
-		vk::raii::CommandBuffer       commandCopyBuffer = std::move(context.device.allocateCommandBuffers(allocInfo).front());
-		commandCopyBuffer.begin(vk::CommandBufferBeginInfo{ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
-		commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy{ .size = size });
-		commandCopyBuffer.end();
-		context.queue.submit(vk::SubmitInfo{ .commandBufferCount = 1, .pCommandBuffers = &*commandCopyBuffer }, nullptr);
-		context.queue.waitIdle();
 	}
 
 	void recordCommandBuffer(uint32_t imageIndex)
