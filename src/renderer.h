@@ -112,16 +112,17 @@ private:
 	bool isShift;
 
 	osp::Camera camera;
+	std::unique_ptr<osp::Mesh> groundGridMesh;
+
 	osp::Track track;
 	std::unique_ptr<osp::TrackMesh> trackMesh;
 	std::unique_ptr<osp::TrackMesh> trackWireframeMesh;
-	std::unique_ptr<osp::Mesh> groundGridMesh;
+	bool trackDirty = false;
 
 	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\coolCircuit.yaml";
 	std::string currentTrackFileName = "coolCircuit.yaml";
 
 	bool showAbout = false;
-
 	bool onlyShowWireframe = false;
 
 	// PHYSICS
@@ -192,8 +193,7 @@ private:
 				app->track.roll[app->lastHoveredControlPointIndex] += 360.0f;
 			}
 
-			app->track.update();
-			app->createTrack();
+			app->trackDirty = true;
 			return;
 		}
 
@@ -236,7 +236,7 @@ private:
 		if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
 		{
 			app->onlyShowWireframe = !app->onlyShowWireframe;
-			app->createTrack();
+			app->trackDirty = true;
 		}
 		if (key == GLFW_KEY_LEFT_SHIFT)
 		{
@@ -251,7 +251,7 @@ private:
 			if (!app->track.roll.empty())
 			{
 				app->track.addNextSegment();
-				app->createTrack();
+				app->trackDirty = true;
 			}
 		}
 		if (key == GLFW_KEY_BACKSPACE && action == GLFW_PRESS)
@@ -259,7 +259,7 @@ private:
 			if (!app->track.roll.empty())
 			{
 				app->track.removeLastSegment();
-				app->createTrack();
+				app->trackDirty = true;
 			}
 		}
 	}
@@ -289,7 +289,6 @@ private:
 		);
 		createCommandPool();
 		renderAttachments = osp::RenderAttachments(context, swapChain.extent, swapChain.surfaceFormat.format);
-		//createTrack();
 		createGroundGrid();
 		createDescriptorPool();
 		createFrameResources();
@@ -368,7 +367,7 @@ private:
 		//device.waitIdle();
 		track = osp::Track();
 		track.load(std::string(filePath));
-		createTrack();
+		trackDirty = true;
 
 		u = 0.0f;
 		s = 0.0f;
@@ -810,7 +809,7 @@ private:
 			controlPoints[lastHoveredControlPointIndex][1] += delta[3][1];
 			controlPoints[lastHoveredControlPointIndex][2] += delta[3][2];
 
-			createTrack();
+			trackDirty = true;
 			return;
 		}
 		lastHoveredControlPointIndex = -1;
@@ -936,7 +935,10 @@ private:
 
 	void createTrack()
 	{
-		context.device.waitIdle();
+		for (auto& frame : frames) {
+			while (vk::Result::eTimeout == context.device.waitForFences(*frame.inFlight, vk::True, UINT64_MAX));
+		}
+
 		auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
 		viewedMesh = std::make_unique<osp::TrackMesh>();
 		viewedMesh->track = track;
@@ -950,6 +952,7 @@ private:
 			trackMesh->generateMesh();
 			trackMesh->upload(context, commandPool);
 		}
+		trackDirty = false;
 	}
 
 	void createGroundGrid()
@@ -1102,9 +1105,10 @@ private:
 		cmd.drawIndexed(groundGridMesh->data.indices.size(), 1, 0, 0, 0);
 
 		// Draw Track Mesh
-		if (trackMesh != nullptr && trackMesh->mesh.data.indices.size() > 0)
+		auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
+
+		if (viewedMesh != nullptr && viewedMesh->mesh.data.indices.size() > 0)
 		{
-			auto& viewedMesh = onlyShowWireframe ? trackWireframeMesh : trackMesh;
 			if (onlyShowWireframe) {
 				cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipeline);
 				cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *mainPipeline.pipelineLayout, 0, *frames[currentFrame].descriptorSet, nullptr);
@@ -1153,6 +1157,12 @@ private:
 		{
 			throw std::runtime_error("failed to acquire swap chain image!");
 		}
+
+		if (trackDirty)
+		{
+			createTrack();
+		}
+
 		updateUniformBuffer(currentFrame);
 
 		context.device.resetFences(*frame.inFlight);
