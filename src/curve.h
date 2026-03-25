@@ -18,8 +18,13 @@ struct ICurve {
 
 	virtual glm::vec3 evaluate(float s, size_t* i = nullptr) = 0;
 	virtual glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll) = 0;
-	virtual glm::mat4 evaluateFrenetInterpolated(float s, const std::vector<float>& roll) = 0;
 	virtual size_t getSegmentAtLength(float s) = 0;
+	virtual glm::vec3 getTangentAtLength(float s) = 0;
+	
+	virtual glm::vec3 getControlPoint(size_t i) = 0;
+	virtual size_t getNumControlPoints() = 0;
+	virtual void setControlPoint(size_t i, glm::vec3 value) = 0;
+	virtual void appendControlPoint(glm::vec3 value) = 0;
 
 	virtual void extendBack() = 0;
 	virtual void removeBack() = 0;

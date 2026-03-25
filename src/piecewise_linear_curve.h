@@ -9,7 +9,6 @@
 namespace osp {
 
 struct PiecewiseLinearCurve : public ICurve {
-	std::vector<float> knots;
 	std::vector<glm::vec3> controlPoints;
 
 	std::vector<glm::vec3> controlTangents;
@@ -19,7 +18,6 @@ struct PiecewiseLinearCurve : public ICurve {
 
 	PiecewiseLinearCurve()
 	{
-		knots = std::vector<float>();
 		controlPoints = std::vector<glm::vec3>();
 
 		segmentLengths = std::vector<float>();
@@ -68,21 +66,21 @@ struct PiecewiseLinearCurve : public ICurve {
 		controlTangents.push_back(glm::normalize(controlPoints[N - 1] - controlPoints[N - 2]));
 	}
 
-	float normalizedToArcLength(float u)
+	float normalizedToArcLength(float u) override
 	{
 		if (cumulativeLengths.empty())
 			return 0.0f;
 		return u * cumulativeLengths.back();
 	}
 
-	float arcLengthToNormalized(float s)
+	float arcLengthToNormalized(float s) override
 	{
 		if (cumulativeLengths.empty())
 			return 0.0f;
 		return s / cumulativeLengths.back();
 	}
 
-	size_t getSegmentAtLength(float s)
+	size_t getSegmentAtLength(float s) override
 	{
 		if (cumulativeLengths.empty())
 			return 0;
@@ -96,30 +94,58 @@ struct PiecewiseLinearCurve : public ICurve {
 		return seg;
 	}
 
-	float totalLength() const {
+	glm::vec3 getTangentAtLength(float s) override
+	{
+		if (cumulativeLengths.empty())
+			return UP_DIR;
+
+		size_t seg = getSegmentAtLength(s);
+		return controlTangents[seg];
+	}
+
+	glm::vec3 getControlPoint(size_t i) override
+	{
+		return controlPoints[i];
+	}
+	size_t getNumControlPoints() override
+	{
+		return controlPoints.size();
+	}
+	void setControlPoint(size_t i, glm::vec3 value) override
+	{
+		if (controlPoints.empty()) return;
+		if (i >= getNumControlPoints() && i < 0) return;
+
+		controlPoints[i] = value;
+	}
+	void appendControlPoint(glm::vec3 value) override
+	{
+		controlPoints.push_back(value);
+	}
+
+	float totalLength() const override
+	{
 		return cumulativeLengths.empty() ? 0.0f : cumulativeLengths.back();
 	}
 
-	void extendBack()
+	void extendBack() override
 	{
 		float segmentLength = segmentLengths.back();
 		glm::vec3 newControlPoint = controlPoints.back() + segmentLength * controlTangents.back();
-		knots.push_back(knots.back() + 1);
 		controlTangents.push_back(controlTangents.back());
 		controlPoints.push_back(newControlPoint);
 		cumulativeLengths.push_back(cumulativeLengths.back() + segmentLength);
 		segmentLengths.push_back(segmentLength);
 	}
-	void removeBack()
+	void removeBack() override
 	{
-		knots.pop_back();
 		controlPoints.pop_back();
 		controlTangents.pop_back();
 		cumulativeLengths.pop_back();
 		segmentLengths.pop_back();
 	}
 
-	void update()
+	void update() override
 	{
 		calculateLength();
 		calculateTangents();
@@ -152,7 +178,7 @@ struct PiecewiseLinearCurve : public ICurve {
 		return evaluate(normalizedToArcLength(u));
 	}
 
-	glm::mat4 evaluateFrenetInterpolated(float s, const std::vector<float>& roll)
+	glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll) override
 	{
 		size_t i = 0;
 		glm::vec3 position = evaluate(s, &i);
@@ -174,27 +200,6 @@ struct PiecewiseLinearCurve : public ICurve {
 
 		glm::mat4 frenet = glm::identity<glm::mat4>();
 		frenet[3][3] = 1.0f;
-		setColumn(frenet, right, 0);
-		setColumn(frenet, up, 1);
-		setColumn(frenet, forward, 2);
-		setColumn(frenet, position, 3);
-
-		return frenet;
-	}
-
-	glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll)
-	{
-		size_t i = 0;
-		glm::vec3 position = evaluate(s, &i);
-
-		// Construct Frenet Frame
-		glm::vec3 forward = glm::normalize(controlTangents[i]);
-
-		glm::mat3 rotation = glm::rotate(glm::radians((float)roll[i]), forward);
-		glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
-		glm::vec3 up = -glm::normalize(glm::cross(forward, right));
-
-		glm::mat4 frenet = glm::identity<glm::mat4>();
 		setColumn(frenet, right, 0);
 		setColumn(frenet, up, 1);
 		setColumn(frenet, forward, 2);

@@ -17,33 +17,39 @@ namespace osp
 
 struct Track 
 {
+	// TODO Handle insufficient number of control points
 	std::unique_ptr<ICurve> curve;
 	std::vector<float> roll;
 
+	Track() = default;
+
+	void createEmpty()
+	{
+		std::unique_ptr<ICurve> tempCurve = std::make_unique<HermiteCurve>();
+		roll.clear();
+
+		tempCurve->appendControlPoint(glm::vec3(0.0f));
+		tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
+		roll.push_back(0.0f);
+		roll.push_back(0.0f);
+
+		curve = std::move(tempCurve);
+		curve->update();
+	}
+
 	void load(const std::string& path) 
 	{
-
-		//YAML::Node config = YAML::LoadFile(path);
-		//
-		//auto c = std::make_unique<HermiteCurve>();
-		//
-		//if (config["points"]) {
-		//	for (const auto& point : config["points"]) {
-		//		c->controlPoints.push_back({
-		//			point[0].as<float>(),
-		//			point[1].as<float>(),
-		//			point[2].as<float>()
-		//			});
-		//	}
-		//}
-		//roll = config["roll"].as<std::vector<float>>();
-		//curve = std::move(c);
-		//curve->update();
 		YAML::Node config = YAML::LoadFile(path);
+
+		std::string curveType;
+		std::unique_ptr<ICurve> tempCurve;
+		if (!config["curveType"] || (curveType = config["curveType"].as<std::string>()).compare("linear") == 0) {
+			tempCurve = std::make_unique<PiecewiseLinearCurve>();
+		}
+		else if ((curveType = config["curveType"].as<std::string>()).compare("hermite") == 0){
+			tempCurve = std::make_unique<HermiteCurve>();
+		}
 		
-		auto linCurve = std::make_unique<PiecewiseLinearCurve>();
-		
-		linCurve->knots = config["knots"].as<std::vector<float>>();
 		if (config["points"]) {
 			for (const auto& point : config["points"]) {
 				float x = point[0].as<float>();
@@ -51,31 +57,35 @@ struct Track
 				float z = point[2].as<float>();
 		
 				// Add the point to the vector
-				linCurve->controlPoints.push_back(glm::vec3(x, y, z));
+				tempCurve->appendControlPoint(glm::vec3(x, y, z));
 			}
 		}
 		roll = config["roll"].as<std::vector<float>>();
 		
-		curve = std::move(linCurve);
+		curve = std::move(tempCurve);
 		curve->update();
 	}
 
 	void save(const std::string& path)
 	{
-		PiecewiseLinearCurve* linCurve = dynamic_cast<PiecewiseLinearCurve*>(curve.get());
-		if (!linCurve) return;
+		std::string curveType = "linear";
+		if (PiecewiseLinearCurve* tempCurve = dynamic_cast<PiecewiseLinearCurve*>(curve.get())) {
+			curveType = "linear";
+		} 
+		else if (HermiteCurve* tempCurve = dynamic_cast<HermiteCurve*>(curve.get())) {
+			curveType = "hermite";
+		}
+		else {
+			curveType = "linear";
+		}
+		const size_t N = curve->getNumControlPoints();
 
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "knots" << YAML::Value << YAML::BeginSeq;
-		for (const auto& k : linCurve->knots)
-		{
-			out << k;
-		}
-		out << YAML::EndSeq;
+		out << YAML::Key << "curveType" << YAML::Value << curveType;
 		out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
-		for (const auto& p : linCurve->controlPoints)
-		{
+		for (size_t i = 0; i < N; i++) {
+			glm::vec3 p = curve->getControlPoint(i);
 			out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
 		}
 		out << YAML::EndSeq;
@@ -112,9 +122,9 @@ struct Track
 		return curve->evaluate(s);
 	}
 
-	glm::mat4 evaluateFrenetInterpolated(float s)
+	glm::mat4 evaluateFrenet(float s)
 	{
-		return curve->evaluateFrenetInterpolated(s, roll);
+		return curve->evaluateFrenet(s, roll);
 	}
 
 	float totalLength()

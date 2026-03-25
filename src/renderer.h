@@ -384,6 +384,20 @@ private:
 		track->save(filePath);
 	}
 
+	void createNewTrack()
+	{
+		currentTrackFilePath = "NewTrack";
+		currentTrackFileName = "";
+
+		track = std::make_unique<osp::Track>();
+		track->createEmpty();
+		trackDirty = true;
+
+		u = 0.0f;
+		s = 0.0f;
+		v = 0.001f;
+	}
+
 	void initWorld() 
 	{
 		camera = osp::Camera(window);
@@ -397,10 +411,9 @@ private:
 		camera.updateView(window, 0.0f);
 	}
 
-	void doPhysics(osp::PiecewiseLinearCurve* linCurve)
+	void doPhysics()
 	{
-		if (linCurve->cumulativeLengths.empty())
-			return;
+		auto& curve = *track->curve;
 
 		float remainingTime = dt;
 		float dtSub = 0.001f; // max substep
@@ -408,38 +421,34 @@ private:
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
-			glm::vec3 pos = linCurve->evaluate(s);
-			int segIndex = linCurve->getSegmentAtLength(s);
+			glm::vec3 pos = curve.evaluate(s);
+			int segIndex = curve.getSegmentAtLength(s);
+			float totalLength = curve.totalLength();
 
 			// Clamp end
-			if (segIndex >= linCurve->controlPoints.size() - 1)
+			if (s >= totalLength)
 			{
 				v = 0;
 				return;
 			}
-
-			float segLen = linCurve->segmentLengths[segIndex];
-
-			glm::vec3 p0 = linCurve->controlPoints[segIndex];
-			glm::vec3 p1 = linCurve->controlPoints[segIndex + 1];
-			glm::vec3 tangent = glm::normalize(p1 - p0);
+			glm::vec3 tangent = curve.getTangentAtLength(s);
 
 			float a = 0.001f * 9.81f * glm::dot(GRAVITY, tangent);
-			float rollingFriction = 0.01;
+			float rollingFriction = 0.01f;
 			float frictionAccel = -rollingFriction * 0.001f * 9.81f * (v > 0 ? 1.0f : -1.0f);
 			a += frictionAccel;
 			// Euler integration
 			s += v * step + 0.5f * a * step * step;
 			v += a * step;
 
-			if (segIndex < 12) 
+			if (segIndex <= 12) 
 			{
-				v = 0.01f;
+				v = glm::max(0.01f, v);
 			}
 
 			// Clamp s to track
 			if (s < 0) { s = 0; v = 0; }
-			if (s > linCurve->cumulativeLengths.back()) { s = linCurve->cumulativeLengths.back(); v = 0; }
+			if (s > totalLength) { s = totalLength; v = 0; }
 
 			remainingTime -= step;
 		}
@@ -465,6 +474,10 @@ private:
 			{
 				if (ImGui::BeginMenu("File"))
 				{
+					if (ImGui::MenuItem("New"))
+					{
+						createNewTrack();
+					}
 					if (ImGui::MenuItem("Open"))
 					{
 						nfdu8char_t* outPath = NULL;
@@ -586,49 +599,47 @@ private:
 
 			// Dependence on loaded track
 			if (track) {
-				auto linCurve = dynamic_cast<osp::PiecewiseLinearCurve*>(track->curve.get());
-				if (linCurve) {
-					showTranslateOnHover(linCurve);
-					ImGui::Begin("Track Controls", nullptr, flags);
+				showTranslateOnHover();
+				ImGui::Begin("Track Controls", nullptr, flags);
 
-					if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
+				if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
+				{
+					s = track->curve->normalizedToArcLength(u);
+					v = 0;
+				}
+				else
+				{
+					if (doSimulate)
 					{
-						s = linCurve->normalizedToArcLength(u);
-						v = 0;
+						doPhysics();
 					}
-					else
-					{
-						if (doSimulate)
-						{
-							doPhysics(linCurve);
-						}
-						s = glm::clamp(s, 0.0f, linCurve->cumulativeLengths.empty() ? 0.0f : linCurve->cumulativeLengths.back());
-						u = linCurve->arcLengthToNormalized(s);
-					}
-					ImGui::Checkbox("Simulate Physics", &doSimulate);
+					u = track->curve->arcLengthToNormalized(s);
+				}
+				//ImGui::Text("Segment: %i", track->curve->getSegmentAtLength(s));
+				ImGui::Checkbox("Simulate Physics", &doSimulate);
 
-					ImGui::End();
+				ImGui::End();
 
-					if (trackMesh || trackWireframeMesh)
-					{
-						ImDrawList* drawList = ImGui::GetForegroundDrawList();
+				if (trackMesh || trackWireframeMesh)
+				{
+					//ImDrawList* drawList = ImGui::GetForegroundDrawList();
+					//size_t numControlPoints = track->curve->getNumControlPoints();
+					//for (size_t i = 0; i < numControlPoints; i++) {
+					//	glm::vec3 controlPoint = track->curve->getControlPoint(i);
+					//	glm::vec2 screenPos = camera.projectPositionToScreen(controlPoint, swapChain.extent.width, swapChain.extent.height);
+					//	float scale = 1.0f / (1.0f + camera.depthOfPoint(controlPoint) * 0.1f);
+					//	drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+					//}
 
-						glm::vec3 curvePos = linCurve->evaluate(s);
-						glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChain.extent.width, swapChain.extent.height);
-						float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
-						//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
-
-						glm::mat4 proj(camera.proj);
-						proj[1][1] *= -1;
-						glm::mat4 frenet = track->evaluateFrenetInterpolated(s);
-						glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
-						model[3][3] = 1.0f;
-						model[3][1] += 0.05f;
-						model = frenet * model;
-						glm::mat4 id = glm::identity<glm::mat4>();
-						ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
-						//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
-					}
+					glm::mat4 proj(camera.proj);
+					proj[1][1] *= -1;
+					glm::mat4 frenet = track->evaluateFrenet(s);
+					glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
+					model[3][3] = 1.0f;
+					model[3][1] += 0.05f;
+					model = frenet * model;
+					glm::mat4 id = glm::identity<glm::mat4>();
+					ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
 				}
 			}
 			ImGui::EndFrame();
@@ -679,33 +690,32 @@ private:
 		camera.updateProj(window, 0.0f);
 	}
 
-	void showTranslateOnHover(osp::PiecewiseLinearCurve* linCurve)
+	void showTranslateOnHover()
 	{
 		if (showAbout) return;
-		std::vector<glm::vec3>& controlPoints = linCurve->controlPoints;
+
+		auto& curve = *track->curve;
+		size_t numControlPoints = curve.getNumControlPoints();
 		if (ImGuizmo::IsUsing() && lastHoveredControlPointIndex != -1)
 		{
 			glm::mat4 proj(camera.proj);
 			proj[1][1] *= -1;
 			glm::mat4 id = glm::identity<glm::mat4>();
-			id[3][0] = controlPoints[lastHoveredControlPointIndex][0];
-			id[3][1] = controlPoints[lastHoveredControlPointIndex][1];
-			id[3][2] = controlPoints[lastHoveredControlPointIndex][2];
+			glm::vec3 lastControlPoint = curve.getControlPoint(lastHoveredControlPointIndex);
+			id[3] = glm::vec4(lastControlPoint, 0.0f);
 			glm::mat4 delta = glm::identity<glm::mat4>();
 
 			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
-			controlPoints[lastHoveredControlPointIndex][0] += delta[3][0];
-			controlPoints[lastHoveredControlPointIndex][1] += delta[3][1];
-			controlPoints[lastHoveredControlPointIndex][2] += delta[3][2];
+			curve.setControlPoint(lastHoveredControlPointIndex, lastControlPoint + glm::vec3(delta[3][0], delta[3][1], delta[3][2]));
 
 			trackDirty = true;
 			return;
 		}
 		lastHoveredControlPointIndex = -1;
 		float minDist = 100000000.0f;
-		for (int i = 0; i < controlPoints.size(); i++)
+		for (int i = 0; i < numControlPoints; i++)
 		{
-			glm::vec2 screenPos = camera.projectPositionToScreen(controlPoints[i], static_cast<uint32_t>(swapChain.extent.width), static_cast<uint32_t>(swapChain.extent.height));
+			glm::vec2 screenPos = camera.projectPositionToScreen(curve.getControlPoint(i), static_cast<uint32_t>(swapChain.extent.width), static_cast<uint32_t>(swapChain.extent.height));
 			float dist = glm::distance(screenPos, screenCursorPos);
 			if (dist < minDist)
 			{
@@ -718,9 +728,8 @@ private:
 			glm::mat4 proj(camera.proj);
 			proj[1][1] *= -1;
 			glm::mat4 id = glm::identity<glm::mat4>();
-			id[3][0] = controlPoints[lastHoveredControlPointIndex][0];
-			id[3][1] = controlPoints[lastHoveredControlPointIndex][1];
-			id[3][2] = controlPoints[lastHoveredControlPointIndex][2];
+			glm::vec3 lastControlPoint = curve.getControlPoint(lastHoveredControlPointIndex);
+			id[3] = glm::vec4(lastControlPoint, 0.0f);
 			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
 		}
 		else

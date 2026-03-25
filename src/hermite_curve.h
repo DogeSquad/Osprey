@@ -40,7 +40,6 @@ namespace osp {
 	}
 
 	struct HermiteCurve : public ICurve {
-		std::vector<float> knots;
 		std::vector<glm::vec3> controlPoints;
 
 		std::vector<glm::vec3> controlTangents;
@@ -64,7 +63,6 @@ namespace osp {
 		{
 			float segmentLength = segmentLengths.back();
 			glm::vec3 newControlPoint = controlPoints.back() + segmentLength * controlTangents.back();
-			knots.push_back(knots.back() + 1);
 			controlTangents.push_back(controlTangents.back());
 			controlPoints.push_back(newControlPoint);
 			cumulativeLengths.push_back(cumulativeLengths.back() + segmentLength);
@@ -72,7 +70,6 @@ namespace osp {
 		}
 		void removeBack() override
 		{
-			knots.pop_back();
 			controlPoints.pop_back();
 			controlTangents.pop_back();
 			cumulativeLengths.pop_back();
@@ -106,7 +103,7 @@ namespace osp {
 			float totalLength = 0.0;
 			for (int i = 0; i < controlPoints.size() - 1; i++)
 			{
-				segmentLengths.push_back(approximateSegmentLength(i, 16));
+				segmentLengths.push_back(approximateSegmentLength(i, 64));
 				totalLength += segmentLengths[i];
 				cumulativeLengths.push_back(totalLength);
 			}
@@ -115,21 +112,25 @@ namespace osp {
 		void calculateTangents()
 		{
 			uint32_t N = controlPoints.size();
-			if (N <= 1)
+			if (N < 2) return;
+
+			controlTangents.resize(N);
+
+			for (uint32_t i = 0; i < N; i++)
 			{
-				return;
+				if (i == 0)
+				{
+					controlTangents[i] = (controlPoints[1] - controlPoints[0]);
+				}
+				else if (i == N - 1)
+				{
+					controlTangents[i] = (controlPoints[N - 1] - controlPoints[N - 2]);
+				}
+				else
+				{
+					controlTangents[i] = 0.5f * (controlPoints[i + 1] - controlPoints[i - 1]);
+				}
 			}
-
-			controlTangents = std::vector<glm::vec3>();
-			controlTangents.reserve(N);
-
-			controlTangents.push_back(glm::normalize(controlPoints[1] - controlPoints[0]));
-
-			for (int i = 1; i < N - 1; i++)
-			{
-				controlTangents.push_back(0.5f * (controlPoints[i + 1] - controlPoints[i - 1]));
-			}
-			controlTangents.push_back(glm::normalize(controlPoints[N - 1] - controlPoints[N - 2]));
 		}
 
 		float normalizedToArcLength(float u)  override
@@ -160,6 +161,35 @@ namespace osp {
 			return seg;
 		}
 
+		glm::vec3 getTangentAtLength(float s) override
+		{
+			if (cumulativeLengths.empty())
+				return UP_DIR;
+
+			size_t seg = getSegmentAtLength(s);
+			return controlTangents[seg];
+		}
+
+		glm::vec3 getControlPoint(size_t i) override
+		{
+			return controlPoints[i];
+		}
+		size_t getNumControlPoints() override
+		{
+			return controlPoints.size();
+		}
+		void setControlPoint(size_t i, glm::vec3 value) override
+		{
+			if (controlPoints.empty()) return;
+			if (i >= getNumControlPoints() && i < 0) return;
+
+			controlPoints[i] = value;
+		}
+		void appendControlPoint(glm::vec3 value) override
+		{
+			controlPoints.push_back(value);
+		}
+
 		glm::vec3 evaluate(float s, size_t* i = nullptr) override
 		{
 			if (cumulativeLengths.empty())
@@ -187,7 +217,7 @@ namespace osp {
 			return evaluate(normalizedToArcLength(u));
 		}
 
-		glm::mat4 evaluateFrenetInterpolated(float s, const std::vector<float>& roll) override
+		glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll) override
 		{
 			size_t i = 0;
 			glm::vec3 position = evaluate(s, &i);
@@ -203,31 +233,9 @@ namespace osp {
 			// Construct Frenet Frame
 			glm::vec3 forward = glm::normalize(hermiteDerivative(
 				controlPoints[i], controlTangents[i],
-				controlPoints[i + 1], controlTangents[i + 1], s));
+				controlPoints[i + 1], controlTangents[i + 1], localT));
 
 			glm::mat3 rotation = glm::rotate(glm::radians((float)glm::mix(roll[i], roll[i + 1], localT)), forward);
-			glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
-			glm::vec3 up = -glm::normalize(glm::cross(forward, right));
-
-			glm::mat4 frenet = glm::identity<glm::mat4>();
-			frenet[3][3] = 1.0f;
-			setColumn(frenet, right, 0);
-			setColumn(frenet, up, 1);
-			setColumn(frenet, forward, 2);
-			setColumn(frenet, position, 3);
-
-			return frenet;
-		}
-
-		glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll) override
-		{
-			size_t i = 0;
-			glm::vec3 position = evaluate(s, &i);
-
-			// Construct Frenet Frame
-			glm::vec3 forward = glm::normalize(controlTangents[i]);
-
-			glm::mat3 rotation = glm::rotate(glm::radians((float)roll[i]), forward);
 			glm::vec3 right = rotation * glm::normalize(glm::cross(forward, UP_DIR));
 			glm::vec3 up = -glm::normalize(glm::cross(forward, right));
 

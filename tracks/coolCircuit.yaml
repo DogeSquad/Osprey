@@ -1,3 +1,4 @@
+curveType: hermite
 knots:
   - 0
   - 1
