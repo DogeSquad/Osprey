@@ -22,12 +22,15 @@ struct VSOutput
     float3 fragColor;
     float2 fragTexCoord;
     float3 fragNormal;
+    float3 posWorld;
 };
 
 [shader("vertex")]
 VSOutput vertMain(VSInput input) {
     VSOutput output;
-    output.pos = mul(ubo.proj, mul(ubo.view, mul(ubo.model, float4(input.inPosition, 1.0))));
+    float4 world = mul(ubo.model, float4(input.inPosition, 1.0));
+    output.posWorld = world.xyz;
+    output.pos = mul(ubo.proj, mul(ubo.view, world));
     output.fragColor = input.inColor;
     output.fragTexCoord = input.inTexCoord;
     output.fragNormal = input.inNormal;
@@ -36,6 +39,7 @@ VSOutput vertMain(VSInput input) {
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    float attenuation = clamp(dot(vertIn.fragNormal, ubo.lightDir), 0.0, 1.0);
-    return float4(vertIn.fragColor, 1.0); //* (0.8 * attenuation + 0.2);
+    float dist = length(vertIn.posWorld.xz - ubo.cameraPos.xz);
+    float alpha = 1.0 - smoothstep(10.0, 200.0, dist);
+    return float4(vertIn.fragColor, alpha);
 }

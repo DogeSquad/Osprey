@@ -8,7 +8,7 @@ void Camera::updateProj(GLFWwindow* window, float deltaTime)
 	glfwGetWindowSize(window, &width, &height);
 	if (viewMode == ViewMode::PERSPECTIVE) 
 	{
-		proj = glm::perspective(glm::radians(fov), static_cast<float>(width) / static_cast<float>(height), near, 60.0f);
+		proj = glm::perspective(glm::radians(fov), static_cast<float>(width) / static_cast<float>(height), near, 200.0f);
 		proj[1][1] *= -1;
 	}
 	else if (viewMode == ViewMode::ORTHOGONAL)
