@@ -587,47 +587,48 @@ private:
 			// Dependence on loaded track
 			if (track) {
 				auto linCurve = dynamic_cast<osp::PiecewiseLinearCurve*>(track->curve.get());
+				if (linCurve) {
+					showTranslateOnHover(linCurve);
+					ImGui::Begin("Track Controls", nullptr, flags);
 
-				showTranslateOnHover(linCurve);
-				ImGui::Begin("Track Controls", nullptr, flags);
-
-				if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
-				{
-					s = linCurve->normalizedToArcLength(u);
-					v = 0;
-				}
-				else
-				{
-					if (doSimulate)
+					if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
 					{
-						doPhysics(linCurve);
+						s = linCurve->normalizedToArcLength(u);
+						v = 0;
 					}
-					s = glm::clamp(s, 0.0f, linCurve->cumulativeLengths.empty() ? 0.0f : linCurve->cumulativeLengths.back());
-					u = linCurve->arcLengthToNormalized(s);
-				}
-				ImGui::Checkbox("Simulate Physics", &doSimulate);
+					else
+					{
+						if (doSimulate)
+						{
+							doPhysics(linCurve);
+						}
+						s = glm::clamp(s, 0.0f, linCurve->cumulativeLengths.empty() ? 0.0f : linCurve->cumulativeLengths.back());
+						u = linCurve->arcLengthToNormalized(s);
+					}
+					ImGui::Checkbox("Simulate Physics", &doSimulate);
 
-				ImGui::End();
+					ImGui::End();
 
-				if (trackMesh || trackWireframeMesh)
-				{
-					ImDrawList* drawList = ImGui::GetForegroundDrawList();
+					if (trackMesh || trackWireframeMesh)
+					{
+						ImDrawList* drawList = ImGui::GetForegroundDrawList();
 
-					glm::vec3 curvePos = linCurve->evaluate(s);
-					glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChain.extent.width, swapChain.extent.height);
-					float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
-					//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
+						glm::vec3 curvePos = linCurve->evaluate(s);
+						glm::vec2 screenPos = camera.projectPositionToScreen(curvePos, swapChain.extent.width, swapChain.extent.height);
+						float scale = 1.0f / (1.0f + camera.depthOfPoint(curvePos) * 0.1f);
+						//drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), 20.0f * scale, IM_COL32(255, 0, 0, 255));
 
-					glm::mat4 proj(camera.proj);
-					proj[1][1] *= -1;
-					glm::mat4 frenet = track->evaluateFrenetInterpolated(s);
-					glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
-					model[3][3] = 1.0f;
-					model[3][1] += 0.05f;
-					model = frenet * model;
-					glm::mat4 id = glm::identity<glm::mat4>();
-					ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
-					//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
+						glm::mat4 proj(camera.proj);
+						proj[1][1] *= -1;
+						glm::mat4 frenet = track->evaluateFrenetInterpolated(s);
+						glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
+						model[3][3] = 1.0f;
+						model[3][1] += 0.05f;
+						model = frenet * model;
+						glm::mat4 id = glm::identity<glm::mat4>();
+						ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
+						//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::LOCAL, glm::value_ptr(frenet), glm::value_ptr(id));
+					}
 				}
 			}
 			ImGui::EndFrame();
@@ -635,9 +636,6 @@ private:
 			ImGui::Render();
 			drawFrame();
 		}
-
-		// TODO: is this needed???
-		context.device.waitIdle();
 
 		endTime = glfwGetTime();
 		double timeDiff = endTime - startTime;
@@ -649,6 +647,7 @@ private:
 
 	void cleanup() const
 	{
+		context.device.waitIdle();
 		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();

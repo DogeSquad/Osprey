@@ -4,6 +4,15 @@
 
 namespace osp {
 
+static void setColumn(glm::mat4& mat, glm::vec3 colVec, size_t index)
+{
+	if (index < 0 || index > 3) return;
+
+	mat[index][0] = colVec[0];
+	mat[index][1] = colVec[1];
+	mat[index][2] = colVec[2];
+}
+
 struct ICurve {
 	virtual ~ICurve() = default;
 
