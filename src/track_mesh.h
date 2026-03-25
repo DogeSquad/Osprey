@@ -20,8 +20,6 @@ struct TrackMesh
 
 	const float sampleSpacing = 0.01f;
 	const int   tieEvery = 50;
-	const float railOffset = 0.075f;
-	const float railRadius = 0.015f;
 
 	const int segments = 30;
 
@@ -128,12 +126,14 @@ struct TrackMesh
 			frames.push_back(glm::mat3(right, up, forward));
 		}
 
-		generateTube(positions, frames, glm::vec2(-railOffset, 0.0f), railRadius, segments, color);
-		generateTube(positions, frames, glm::vec2(railOffset, 0.0f), railRadius, segments, color);
+		generateTube(positions, frames, glm::vec2(-track->profile.railDistanceToCenter, 0.0f), track->profile.runningRailRadius, segments, color);
+		generateTube(positions, frames, glm::vec2(track->profile.railDistanceToCenter, 0.0f), track->profile.runningRailRadius, segments, color);
+
+		generateTube(positions, frames, glm::vec2(0.0f, -track->profile.mainSplineOffset), track->profile.mainSplineRadius, segments, color);
 
 		// cross ties
 		for (int i = 0; i < positions.size(); i += tieEvery) {
-			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], railOffset, color);
+			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], track->profile.railDistanceToCenter, color, 10, track->profile.tieRadius);
 		}
 	}
 
@@ -188,14 +188,14 @@ struct TrackMesh
 			frames.push_back(glm::mat3(right, up, forward));
 		}
 
-		generateTube(positions, frames, glm::vec2(-railOffset, 0.0f), 0.0f, 1, tubeColor);
-		generateTube(positions, frames, glm::vec2(railOffset, 0.0f), 0.0f, 1, tubeColor);
+		generateTube(positions, frames, glm::vec2(-track->profile.railDistanceToCenter, 0.0f), 0.0f, 1, tubeColor);
+		generateTube(positions, frames, glm::vec2(track->profile.railDistanceToCenter, 0.0f), 0.0f, 1, tubeColor);
 
-
+		generateTube(positions, frames, glm::vec2(0.0f, -track->profile.mainSplineOffset), 0.0f, 1, tubeColor);
 
 		// cross ties
 		for (int i = 0; i < positions.size(); i += tieEvery) {
-			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], railOffset, tubeColor, 1, 0.0f);
+			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], track->profile.railDistanceToCenter, tubeColor, 1, 0.0f);
 		}
 
 

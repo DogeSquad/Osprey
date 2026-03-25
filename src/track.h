@@ -17,6 +17,17 @@ namespace osp
 
 struct Track 
 {
+	struct TrackProfile {
+		// Inspired by Vekoma Double Spine Track
+		// https://themeparkreview.com/forum/uploads/monthly_2015_07/1072184159_IntaminDoubleSpineTrackDimensions.PNG.a2dad476ee138e4d324cbd482778a9d8.PNG
+		// Converted from cm to meters
+		const float runningRailRadius = 0.13f / 2.0f;
+		const float railDistanceToCenter = 0.45f; // Running Rail Center to Center
+		const float tieRadius = 0.05f;
+
+		const float mainSplineRadius = 0.39f / 2.0f;
+		const float mainSplineOffset = 0.4f;
+	} const profile;
 	// TODO Handle insufficient number of control points
 	std::unique_ptr<ICurve> curve;
 	std::vector<float> roll;
