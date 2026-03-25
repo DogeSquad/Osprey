@@ -62,7 +62,7 @@ namespace osp {
 		void extendBack() override
 		{
 			float segmentLength = segmentLengths.back();
-			glm::vec3 newControlPoint = controlPoints.back() + segmentLength * controlTangents.back();
+			glm::vec3 newControlPoint = controlPoints.back() + segmentLength * glm::normalize(controlTangents.back());
 			controlTangents.push_back(controlTangents.back());
 			controlPoints.push_back(newControlPoint);
 			cumulativeLengths.push_back(cumulativeLengths.back() + segmentLength);
@@ -103,7 +103,7 @@ namespace osp {
 			float totalLength = 0.0;
 			for (int i = 0; i < controlPoints.size() - 1; i++)
 			{
-				segmentLengths.push_back(approximateSegmentLength(i, 64));
+				segmentLengths.push_back(approximateSegmentLength(i, 128));
 				totalLength += segmentLengths[i];
 				cumulativeLengths.push_back(totalLength);
 			}
@@ -166,8 +166,23 @@ namespace osp {
 			if (cumulativeLengths.empty())
 				return UP_DIR;
 
+			size_t i = 0;
+			glm::vec3 position = evaluate(s, &i);
+			float localT;
+			if (i == 0)
+			{
+				localT = s / segmentLengths[0];
+			}
+			else
+			{
+				localT = (s - cumulativeLengths[i - 1]) / segmentLengths[i]; // TODO Division by 0?
+			}
+
 			size_t seg = getSegmentAtLength(s);
-			return controlTangents[seg];
+			glm::vec3 forward = hermiteDerivative(
+				controlPoints[seg], controlTangents[seg],
+				controlPoints[seg + 1], controlTangents[seg + 1], localT);
+			return forward;
 		}
 
 		glm::vec3 getControlPoint(size_t i) override
@@ -181,7 +196,7 @@ namespace osp {
 		void setControlPoint(size_t i, glm::vec3 value) override
 		{
 			if (controlPoints.empty()) return;
-			if (i >= getNumControlPoints() && i < 0) return;
+			if (i >= getNumControlPoints()) return;
 
 			controlPoints[i] = value;
 		}

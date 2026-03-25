@@ -128,6 +128,7 @@ private:
 
 	// PHYSICS
 	float dt = 0.016666;
+	float timeScale = 0.1f;
 	float u = 0.0f;
 	float s = 0.0f;
 	float v = 0.0f;
@@ -237,7 +238,9 @@ private:
 		if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
 		{
 			app->onlyShowWireframe = !app->onlyShowWireframe;
-			app->trackDirty = true;
+			if (app->track) {
+				app->trackDirty = true;
+			}
 		}
 		if (key == GLFW_KEY_LEFT_SHIFT)
 		{
@@ -411,18 +414,18 @@ private:
 		camera.updateView(window, 0.0f);
 	}
 
-	void doPhysics()
+	void doPhysics(double dt)
 	{
 		auto& curve = *track->curve;
 
-		float remainingTime = dt;
+		float remainingTime = (float)dt;
 		float dtSub = 0.001f; // max substep
 
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
-			glm::vec3 pos = curve.evaluate(s);
-			int segIndex = curve.getSegmentAtLength(s);
+			size_t segIndex;
+			glm::vec3 pos = curve.evaluate(s, &segIndex);
 			float totalLength = curve.totalLength();
 
 			// Clamp end
@@ -433,10 +436,16 @@ private:
 			}
 			glm::vec3 tangent = curve.getTangentAtLength(s);
 
-			float a = 0.001f * 9.81f * glm::dot(GRAVITY, tangent);
-			float rollingFriction = 0.01f;
-			float frictionAccel = -rollingFriction * 0.001f * 9.81f * (v > 0 ? 1.0f : -1.0f);
+			float a = timeScale * 9.81f * glm::dot(GRAVITY, tangent);
+			float rollingFriction = 0.001f;
+			
+			float frictionAccel = 0.0f; 
+			if (v > 0.00001f || v < -0.00001f)
+			{
+				frictionAccel = timeScale * -rollingFriction * 9.81f * glm::sign(v);
+			}
 			a += frictionAccel;
+
 			// Euler integration
 			s += v * step + 0.5f * a * step * step;
 			v += a * step;
@@ -457,7 +466,7 @@ private:
 	void mainLoop()
 	{
 		ImGuizmo::AllowAxisFlip(false);
-		double startTime, endTime;
+		double startTime = glfwGetTime(), endTime = 0.0, timeDiff = 0.0;
 		while (!glfwWindowShouldClose(window))
 		{
 			startTime = glfwGetTime();
@@ -611,7 +620,7 @@ private:
 				{
 					if (doSimulate)
 					{
-						doPhysics();
+						doPhysics(dt > timeDiff ? dt : timeDiff);
 					}
 					u = track->curve->arcLengthToNormalized(s);
 				}
@@ -646,13 +655,13 @@ private:
 
 			ImGui::Render();
 			drawFrame();
-		}
 
-		endTime = glfwGetTime();
-		double timeDiff = endTime - startTime;
-		if (timeDiff < dt)
-		{
-			std::this_thread::sleep_for(std::chrono::microseconds((int)glm::round(timeDiff * 1000000)));
+			endTime = glfwGetTime();
+			timeDiff = endTime - startTime;
+			if (timeDiff < dt)
+			{
+				std::this_thread::sleep_for(std::chrono::microseconds((int)glm::round(timeDiff * 1000000)));
+			}
 		}
 	}
 
@@ -707,7 +716,6 @@ private:
 
 			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
 			curve.setControlPoint(lastHoveredControlPointIndex, lastControlPoint + glm::vec3(delta[3][0], delta[3][1], delta[3][2]));
-
 			trackDirty = true;
 			return;
 		}
