@@ -18,8 +18,8 @@ struct TrackMesh
 	Mesh mesh;
 	Track* track;
 
-	const float sampleSpacing = 0.01f;
-	const int   tieEvery = 50;
+	const float sampleSpacing = 0.5f;
+	const float   tieEvery = 1.0f;
 
 	const int segments = 30;
 
@@ -105,7 +105,7 @@ struct TrackMesh
 		mesh.data.indices.clear();
 
 		//glm::vec3 color{ 0.95f, 0.05f, 0.1f };
-		glm::vec3 color{ 0.0f, 0.05f, 0.95f };
+		glm::vec3 color{ 0.1f, 0.2f, 1.0f };
 
 		std::vector<glm::vec3> positions;
 		std::vector<glm::mat3> frames;
@@ -132,8 +132,12 @@ struct TrackMesh
 		generateTube(positions, frames, glm::vec2(0.0f, -track->profile.mainSplineOffset), track->profile.mainSplineRadius, segments, color);
 
 		// cross ties
-		for (int i = 0; i < positions.size(); i += tieEvery) {
-			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], track->profile.railDistanceToCenter, color, 10, track->profile.tieRadius);
+		int i = 0;
+		float s = 0.0f;
+		while ((s = i * tieEvery) <= totalLength) {
+			glm::mat4 fren = track->evaluateFrenet(s);
+			generateCrossTie(fren[3], fren[0], fren[1], fren[2], track->profile.railDistanceToCenter, color, 10, track->profile.tieRadius);
+			i++;
 		}
 	}
 
@@ -194,8 +198,12 @@ struct TrackMesh
 		generateTube(positions, frames, glm::vec2(0.0f, -track->profile.mainSplineOffset), 0.0f, 1, tubeColor);
 
 		// cross ties
-		for (int i = 0; i < positions.size(); i += tieEvery) {
-			generateCrossTie(positions[i], frames[i][0], frames[i][1], frames[i][2], track->profile.railDistanceToCenter, tubeColor, 1, 0.0f);
+		int i = 0;
+		float s = 0.0f;
+		while ((s = i * tieEvery) <= totalLength) {
+			glm::mat4 fren = track->evaluateFrenet(s);
+			generateCrossTie(fren[3], fren[0], fren[1], fren[2], track->profile.railDistanceToCenter, tubeColor, 1, 0.0f);
+			i++;
 		}
 
 

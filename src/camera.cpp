@@ -31,8 +31,15 @@ void Camera::updateProj(GLFWwindow* window, float deltaTime)
 	}
 }
 
+void Camera::setView(glm::mat4 view)
+{
+	this->view = view;
+}
+
 void Camera::updateView(GLFWwindow* window, float deltaTime)
 {
+	if (!userControlled) return;
+
 	position = glm::vec3{ cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw) };
 	position *= distance;
 	position += target;
@@ -42,6 +49,8 @@ void Camera::updateView(GLFWwindow* window, float deltaTime)
 
 glm::vec2 Camera::projectPositionToScreen(glm::vec3 position, uint32_t width, uint32_t height)
 {
+	if (!userControlled) return glm::vec2(0.0f, 0.0f);
+
 	glm::vec4 clip = proj * view * glm::vec4(position, 1.0f);
 
 	if (clip.w <= 0.0f)
@@ -69,6 +78,8 @@ void Camera::toggleViewMode()
 
 void Camera::onMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
+	if (!userControlled) return;
+
 	if (button == GLFW_MOUSE_BUTTON_LEFT)
 		this->leftDown = (action == GLFW_PRESS);
 
@@ -79,6 +90,8 @@ void Camera::onMouseButton(GLFWwindow* window, int button, int action, int mods)
 }
 void Camera::onCursor(GLFWwindow* window, double xpos, double ypos)
 {
+	if (!userControlled) return;
+
 	float dx = xpos - this->lastX;
 	float dy = ypos - this->lastY;
 	this->lastX = xpos;
@@ -111,6 +124,8 @@ void Camera::onCursor(GLFWwindow* window, double xpos, double ypos)
 }
 void Camera::onScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
+	if (!userControlled) return;
+
 	this->distance -= (float)yoffset * 0.5f;
 	if (this->distance < this->minDistance)
 		this->distance = this->minDistance;

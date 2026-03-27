@@ -120,15 +120,16 @@ private:
 	std::unique_ptr<osp::TrackMesh> trackWireframeMesh;
 	bool trackDirty = false;
 
-	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\coolCircuit.yaml";
-	std::string currentTrackFileName = "coolCircuit.yaml";
+	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\accuratelySized.yaml";
+	std::string currentTrackFileName = "accuratelySized.yaml";
 
 	bool showAbout = false;
 	bool onlyShowWireframe = false;
 
 	// PHYSICS
 	float dt = 0.016666;
-	float timeScale = 0.1f;
+	float rollingFriction = 0.001f;
+	float dragCoeff = 0.0f;//0.0025f; // tweak this
 	float u = 0.0f;
 	float s = 0.0f;
 	float v = 0.0f;
@@ -230,7 +231,10 @@ private:
 		}
 		if (app->showAbout) return;
 
-
+		if (key == GLFW_KEY_R && action == GLFW_PRESS)
+		{
+			app->camera.userControlled = !app->camera.userControlled;
+		}
 		if (key == GLFW_KEY_F5 && action == GLFW_PRESS)
 		{
 			app->loadTrack(app->currentTrackFilePath);
@@ -434,27 +438,31 @@ private:
 				v = 0;
 				return;
 			}
-			glm::vec3 tangent = curve.getTangentAtLength(s);
+			glm::vec3 tangent = glm::normalize(curve.getTangentAtLength(s));
 
-			float a = timeScale * 9.81f * glm::dot(GRAVITY, tangent);
-			float rollingFriction = 0.001f;
+			float a = 9.81f * glm::dot(GRAVITY, tangent);
 			
 			float frictionAccel = 0.0f; 
 			if (v > 0.00001f || v < -0.00001f)
 			{
-				frictionAccel = timeScale * -rollingFriction * 9.81f * glm::sign(v);
+				frictionAccel = -rollingFriction * 9.81f * glm::sign(v);
 			}
 			a += frictionAccel;
 
+			float dragAccel = -dragCoeff * v * fabs(v); // v^2 with direction
+			a += dragAccel;
+
 			// Euler integration
-			s += v * step + 0.5f * a * step * step;
-			v += a * step;
+			float oldV = v;
+			v = oldV + a * step;
+			s += 0.5f * (v + oldV) * step;
+			//s += v * step + 0.5f * a * step * step;
+			//v += a * step;
 
-			if (segIndex <= 12) 
+			if (segIndex <= 10) 
 			{
-				v = glm::max(0.01f, v);
+				v = glm::max(2.5f, v);
 			}
-
 			// Clamp s to track
 			if (s < 0) { s = 0; v = 0; }
 			if (s > totalLength) { s = totalLength; v = 0; }
@@ -469,7 +477,9 @@ private:
 		double startTime = glfwGetTime(), endTime = 0.0, timeDiff = 0.0;
 		while (!glfwWindowShouldClose(window))
 		{
-			startTime = glfwGetTime();
+			endTime = glfwGetTime();
+			timeDiff = endTime - startTime;
+			startTime = endTime;
 			glfwPollEvents();
 
 			ImGui_ImplVulkan_NewFrame();
@@ -620,7 +630,8 @@ private:
 				{
 					if (doSimulate)
 					{
-						doPhysics(dt > timeDiff ? dt : timeDiff);
+						float physicsDt = std::min((float)timeDiff, dt);
+						doPhysics(physicsDt);
 					}
 					u = track->curve->arcLengthToNormalized(s);
 				}
@@ -643,12 +654,32 @@ private:
 					glm::mat4 proj(camera.proj);
 					proj[1][1] *= -1;
 					glm::mat4 frenet = track->evaluateFrenet(s);
-					glm::mat4 model = 0.17f * glm::identity<glm::mat4>();
+					glm::mat4 model = 0.9f * glm::identity<glm::mat4>();
 					model[3][3] = 1.0f;
-					model[3][1] += 0.05f;
+					model[3][1] += 0.5f;
 					model = frenet * model;
 					glm::mat4 id = glm::identity<glm::mat4>();
-					ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
+					if (camera.userControlled) {
+						ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
+					} else {
+						glm::mat4 frenet = track->evaluateFrenet(s);
+
+						// extract frame axes
+						glm::vec3 right = glm::vec3(frenet[0]);
+						glm::vec3 up = glm::vec3(frenet[1]);
+						glm::vec3 forward = glm::vec3(frenet[2]);
+						glm::vec3 pos = glm::vec3(frenet[3]);
+
+						// offset camera above the track center
+						pos += up * 1.0f;
+
+						// build view matrix — camera looks in forward direction
+						// glm::lookAt expects: eye, target, up
+						camera.setView(glm::lookAt(pos, pos + forward, up));
+						//frenet[2] *= -1.0f;
+						//frenet[3][1] += 1.5f;
+						//camera.setView(glm::inverse(frenet));
+					}
 				}
 			}
 			ImGui::EndFrame();
@@ -656,12 +687,10 @@ private:
 			ImGui::Render();
 			drawFrame();
 
-			endTime = glfwGetTime();
-			timeDiff = endTime - startTime;
-			if (timeDiff < dt)
-			{
-				std::this_thread::sleep_for(std::chrono::microseconds((int)glm::round(timeDiff * 1000000)));
-			}
+			//if (timeDiff < dt)
+			//{
+			//	std::this_thread::sleep_for(std::chrono::microseconds((int)glm::round(timeDiff * 1000000)));
+			//}
 		}
 	}
 

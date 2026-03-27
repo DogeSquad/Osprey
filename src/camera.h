@@ -37,6 +37,8 @@ struct Camera {
 	double lastX = 0.0;
 	double lastY = 0.0;
 
+	bool userControlled = true;
+
 	GLFWwindow* window;
 	Camera() = default;
 	Camera(GLFWwindow* window) : window(window)
@@ -44,6 +46,8 @@ struct Camera {
 
 	void updateView(GLFWwindow* window, float deltaTime);
 	void updateProj(GLFWwindow* window, float deltaTime);
+
+	void setView(glm::mat4 view);
 	
 	glm::vec2 projectPositionToScreen(glm::vec3 position, uint32_t width, uint32_t height);
 
