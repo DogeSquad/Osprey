@@ -129,7 +129,7 @@ private:
 	// PHYSICS
 	float dt = 0.016666;
 	float rollingFriction = 0.001f;
-	float dragCoeff = 0.0f;//0.0025f; // tweak this
+	float dragCoeff = 0.0f; //0.0025f; // tweak this
 	float u = 0.0f;
 	float s = 0.0f;
 	float v = 0.0f;
@@ -189,12 +189,12 @@ private:
 		{
 			float unclampedRoll = app->track->roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
 			app->track->roll[app->lastHoveredControlPointIndex] = unclampedRoll;
-			if (unclampedRoll > 180.0f) {
-				app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
-			}
-			else if (unclampedRoll < -180.0f) {
-				app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
-			}
+			//if (unclampedRoll > 180.0f) {
+			//	app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
+			//}
+			//else if (unclampedRoll < -180.0f) {
+			//	app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
+			//}
 
 			app->trackDirty = true;
 			return;

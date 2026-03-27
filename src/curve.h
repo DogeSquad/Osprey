@@ -34,6 +34,7 @@ struct ICurve {
 	virtual float totalLength() const = 0;
 	virtual float normalizedToArcLength(float u) = 0;
 	virtual float arcLengthToNormalized(float s) = 0;
+	virtual float normalizedInSegment(float s) = 0;
 };
 
 } // namespace osp

@@ -262,6 +262,21 @@ namespace osp {
 
 			return frenet;
 		}
+
+		float normalizedInSegment(float s) override
+		{
+			size_t i = getSegmentAtLength(s);
+			float localT;
+			if (i == 0)
+			{
+				localT = s / segmentLengths[0];
+			}
+			else
+			{
+				localT = (s - cumulativeLengths[i - 1]) / segmentLengths[i]; // TODO Division by 0?
+			}
+			return localT;
+		}
 	};
 
 } // namespace osp
