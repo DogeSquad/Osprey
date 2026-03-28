@@ -36,9 +36,29 @@ struct Track
 		float s;
 	};
 
+	struct Node {
+		// Idea for Later: Make Node more general as in a thing selectable and editable in 3d space. Idea for other node types
+		// KineticNode: Controls custom movement on a track.
+		// DesignNode: Control the track design, parameterised by position (s) on track.
+		// StructureNode: Control support type.
+		// TriggerNode: Can send triggers to the outer programming context.
+		//
+		// IMPORTANT: The additional nodes parameters should be "addressable" as in being able to be modified
+		// Programming is an essential part to make custom movement idea possible.
+		glm::vec3 position;
+		float roll = 0.0f;
+		float weight = 1.0f;
+
+		Node(glm::vec3 _position, float _roll, float _weight) :
+			position(_position),
+			roll(_roll),
+			weight(_weight){}
+	};
+
+
 	// TODO Handle insufficient number of control points
 	std::unique_ptr<ICurve> curve;
-	std::vector<float> roll;
+	std::vector<Node>       nodes;
 
 	std::vector<TransportFrame> transportFrames;
 
@@ -47,15 +67,16 @@ struct Track
 	void createEmpty()
 	{
 		std::unique_ptr<ICurve> tempCurve = std::make_unique<HermiteCurve>();
-		roll.clear();
+		nodes.clear();
 
 		tempCurve->appendControlPoint(glm::vec3(0.0f));
 		tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
-		roll.push_back(0.0f);
-		roll.push_back(0.0f);
+
+		nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f);
+		nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f);
 
 		curve = std::move(tempCurve);
-		curve->update();
+		update();curve->update();
 	}
 
 	void load(const std::string& path) 
@@ -64,6 +85,8 @@ struct Track
 
 		std::string curveType;
 		std::unique_ptr<ICurve> tempCurve;
+
+		nodes.clear();
 		if (!config["curveType"] || (curveType = config["curveType"].as<std::string>()).compare("linear") == 0) {
 			tempCurve = std::make_unique<PiecewiseLinearCurve>();
 		}
@@ -71,17 +94,34 @@ struct Track
 			tempCurve = std::make_unique<HermiteCurve>();
 		}
 		
-		if (config["points"]) {
-			for (const auto& point : config["points"]) {
-				float x = point[0].as<float>();
-				float y = point[1].as<float>();
-				float z = point[2].as<float>();
+		if (config["points"] && config["roll"]) {
+			auto points = config["points"].as<std::vector<std::vector<float>>>();
+			auto rolls = config["roll"].as<std::vector<float>>();
+			for (size_t i = 0; i < points.size(); i++) {
+				float x = points[i][0];
+				float y = points[i][1];
+				float z = points[i][2];
 		
+				nodes.emplace_back(glm::vec3(x, y, z), rolls[i], 1.0f);
 				// Add the point to the vector
 				tempCurve->appendControlPoint(glm::vec3(x, y, z));
 			}
 		}
-		roll = config["roll"].as<std::vector<float>>();
+
+
+		//if (config["points"]) {
+		//	for (const auto& point : config["points"]) {
+		//		float x = point[0].as<float>();
+		//		float y = point[1].as<float>();
+		//		float z = point[2].as<float>();
+		//
+		//		// Add the point to the vector
+		//		tempCurve->appendControlPoint(glm::vec3(x, y, z));
+		//	}
+		//}
+		//if (config["roll"]) {
+		//	auto rolls = config["roll"].as<std::vector<float>>();
+		//}
 		
 		curve = std::move(tempCurve);
 		curve->update();
@@ -99,21 +139,20 @@ struct Track
 		else {
 			curveType = "linear";
 		}
-		const size_t N = curve->getNumControlPoints();
+		const size_t N = nodes.size();
 
 		YAML::Emitter out;
 		out << YAML::BeginMap;
 		out << YAML::Key << "curveType" << YAML::Value << curveType;
 		out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
 		for (size_t i = 0; i < N; i++) {
-			glm::vec3 p = curve->getControlPoint(i);
+			glm::vec3 p = nodes[i].position;
 			out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
 		}
 		out << YAML::EndSeq;
 		out << YAML::Key << "roll" << YAML::Value << YAML::BeginSeq;
-		for (const auto& r : roll)
-		{
-			out << r;
+		for (size_t i = 0; i < N; i++) {
+			out << nodes[i].roll;
 		}
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
@@ -124,17 +163,22 @@ struct Track
 		fout.close();
 	}
 
+	void applyModification(size_t i) 
+	{
+		curve->setControlPoint(i, nodes[i].position);
+	}
+
 	void addNextSegment()
 	{
 		curve->extendBack();
-		roll.push_back(roll.back());
+		nodes.emplace_back(curve->getControlPoint(curve->getNumControlPoints() - 1), nodes[nodes.size()-1].roll, 1.0f);
 		curve->update();
 	}
 
 	void removeLastSegment()
 	{
 		curve->removeBack();
-		roll.pop_back();
+		nodes.pop_back();
 		curve->update();
 	}
 
@@ -151,7 +195,7 @@ struct Track
 
 		// find roll at this arc length by interpolating between nodes
 		float  t = curve->normalizedInSegment(s);
-		float  rollVal = glm::mix(roll[seg], roll[seg + 1], t);
+		float  rollVal = glm::mix(nodes[seg].roll, nodes[seg+1].roll, t);
 
 		// apply roll on top of transport frame
 		glm::mat3 rollRot = glm::mat3(glm::rotate(glm::radians(rollVal), frame.forward));
@@ -253,4 +297,4 @@ struct Track
 	}
 };
 
-}
+} // namespace osp

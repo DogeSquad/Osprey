@@ -58,6 +58,7 @@ import vulkan_hpp;
 #include "pipeline.h"
 #include "frame.h"
 #include "piecewise_linear_curve.h"
+#include "node_editor.h"
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -110,7 +111,6 @@ private:
 
 	glm::vec2 screenCursorPos = { 0.0f, 0.0f };
 	uint32_t lastHoveredControlPointIndex = 0;
-	bool isShift;
 
 	osp::Camera camera;
 	std::unique_ptr<osp::Mesh> groundGridMesh;
@@ -119,6 +119,8 @@ private:
 	std::unique_ptr<osp::TrackMesh> trackMesh;
 	std::unique_ptr<osp::TrackMesh> trackWireframeMesh;
 	bool trackDirty = false;
+
+	osp::NodeEditor nodeEditor;
 
 	std::string currentTrackFilePath = "F:\\Dev\\_VulkanProjects\\Osprey\\tracks\\accuratelySized.yaml";
 	std::string currentTrackFileName = "accuratelySized.yaml";
@@ -172,27 +174,27 @@ private:
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		app->getCamera()->onCursor(window, xpos, ypos);
 
-		app->screenCursorPos[0] = xpos;
-		app->screenCursorPos[1] = ypos;
+		app->screenCursorPos = glm::vec2(xpos, ypos);
 	}
 	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 	{
-		if (ImGui::GetIO().WantCaptureMouse) 
-		{
-			ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-			//return;
-		}
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (app->showAbout) return;
 
+		if (ImGui::GetIO().WantCaptureMouse) 
+		{
+			ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+			return;
+		}
+
 		if (app->track && app->lastHoveredControlPointIndex != -1)
 		{
-			float unclampedRoll = app->track->roll[app->lastHoveredControlPointIndex] + (float)yoffset * 1.5f;
-			app->track->roll[app->lastHoveredControlPointIndex] = unclampedRoll;
-			//if (unclampedRoll > 180.0f) {
+			float unclampedRoll = app->track->nodes[app->lastHoveredControlPointIndex].roll + (float)yoffset * 1.5f;
+			app->track->nodes[app->lastHoveredControlPointIndex].roll = unclampedRoll;
+			//if (unclampedRoll > 360.0f) {
 			//	app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
 			//}
-			//else if (unclampedRoll < -180.0f) {
+			//else if (unclampedRoll < -360.0f) {
 			//	app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
 			//}
 
@@ -202,9 +204,24 @@ private:
 
 		app->getCamera()->onScroll(window, xoffset, yoffset);
 	}
+	static void charCallback(GLFWwindow* window, unsigned int c) 
+	{
+		ImGui_ImplGlfw_CharCallback(window, c);
+	}
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 	{
+		ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+		//if (ImGui::GetIO().WantCaptureKeyboard)
+		//{
+		//	return;
+		//}
+
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
+
+		if (!app->showAbout) {
+			app->nodeEditor.onKeyCallback(window, key, scancode, action, mods);
+		}
+
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) 
 		{
 			if (app->showAbout)
@@ -243,30 +260,6 @@ private:
 		{
 			app->onlyShowWireframe = !app->onlyShowWireframe;
 			if (app->track) {
-				app->trackDirty = true;
-			}
-		}
-		if (key == GLFW_KEY_LEFT_SHIFT)
-		{
-			if (action == GLFW_PRESS)
-				app->isShift = true;
-			if (action == GLFW_RELEASE)
-				app->isShift = false;
-		}
-
-		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
-		{
-			if (app->track && !app->track->roll.empty())
-			{
-				app->track->addNextSegment();
-				app->trackDirty = true;
-			}
-		}
-		if (key == GLFW_KEY_BACKSPACE && action == GLFW_PRESS)
-		{
-			if (app->track && !app->track->roll.empty())
-			{
-				app->track->removeLastSegment();
 				app->trackDirty = true;
 			}
 		}
@@ -402,7 +395,7 @@ private:
 
 		u = 0.0f;
 		s = 0.0f;
-		v = 0.001f;
+		v = 0.0f;
 	}
 
 	void initWorld() 
@@ -413,6 +406,9 @@ private:
 		glfwSetMouseButtonCallback(window, mouseButtonCallback);
 		glfwSetScrollCallback(window, scrollCallback);
 		glfwSetKeyCallback(window, keyCallback);
+		glfwSetCharCallback(window, charCallback);
+
+		nodeEditor.trackDirty = &trackDirty;
 
 		camera.updateProj(window, 0.0f);
 		camera.updateView(window, 0.0f);
@@ -425,12 +421,13 @@ private:
 		float remainingTime = (float)dt;
 		float dtSub = 0.001f; // max substep
 
+		float totalLength = curve.totalLength();
+
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
 			size_t segIndex;
 			glm::vec3 pos = curve.evaluate(s, &segIndex);
-			float totalLength = curve.totalLength();
 
 			// Clamp end
 			if (s >= totalLength)
@@ -660,6 +657,7 @@ private:
 					model = frenet * model;
 					glm::mat4 id = glm::identity<glm::mat4>();
 					if (camera.userControlled) {
+						// ROLL SEEMS TO INFLUENCE TOO MUCH
 						ImGuizmo::DrawCubes(glm::value_ptr(camera.view), glm::value_ptr(proj), glm::value_ptr(model), 1);
 					} else {
 						glm::mat4 frenet = track->evaluateFrenet(s);
@@ -682,6 +680,9 @@ private:
 					}
 				}
 			}
+
+			nodeEditor.update();
+
 			ImGui::EndFrame();
 
 			ImGui::Render();
@@ -802,6 +803,7 @@ private:
 			trackMesh->generateMesh();
 			trackMesh->upload(context, commandPool);
 		}
+		nodeEditor.track = track.get();
 		trackDirty = false;
 	}
 

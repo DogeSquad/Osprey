@@ -158,20 +158,6 @@ struct TrackMesh
 		std::vector<uint32_t>& indices = mesh.data.indices;
 
 		// TODO: Proper generation
-		const std::vector<glm::vec3>* nodeTangents;
-
-		if (PiecewiseLinearCurve* linCurve = dynamic_cast<PiecewiseLinearCurve*>(track->curve.get())) {
-			nodeTangents = &linCurve->controlTangents;
-		}
-		else if (HermiteCurve* hermCurve = dynamic_cast<HermiteCurve*>(track->curve.get())){
-			nodeTangents = &hermCurve->controlTangents;
-		}
-
-		const std::vector<float>& nodeRoll = track->roll;
-
-
-
-
 
 		std::vector<glm::vec3> positions;
 		std::vector<glm::mat3> frames;
