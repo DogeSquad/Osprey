@@ -49,7 +49,7 @@ void Camera::updateView(GLFWwindow* window, float deltaTime)
 
 glm::vec2 Camera::projectPositionToScreen(glm::vec3 position, uint32_t width, uint32_t height)
 {
-	if (!userControlled) return glm::vec2(0.0f, 0.0f);
+	if (!userControlled) return glm::vec2(-1.0f, -1.0f);
 
 	glm::vec4 clip = proj * view * glm::vec4(position, 1.0f);
 

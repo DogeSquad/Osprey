@@ -166,6 +166,7 @@ struct Track
 	void applyModification(size_t i) 
 	{
 		curve->setControlPoint(i, nodes[i].position);
+		curve->update();
 	}
 
 	void addNextSegment()

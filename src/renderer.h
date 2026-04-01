@@ -165,6 +165,8 @@ private:
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (app->showAbout) return;
 
+		app->nodeEditor.onMouseButtonCallback(window, button, action, mods);
+
 		app->getCamera()->onMouseButton(window, button, action, mods);
 	}
 	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
@@ -172,6 +174,11 @@ private:
 		ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
 
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
+
+		if (!app->showAbout) {
+			app->nodeEditor.onCursorPosCallback(window, xpos, ypos);
+		}
+
 		app->getCamera()->onCursor(window, xpos, ypos);
 
 		app->screenCursorPos = glm::vec2(xpos, ypos);
@@ -408,6 +415,7 @@ private:
 		glfwSetKeyCallback(window, keyCallback);
 		glfwSetCharCallback(window, charCallback);
 
+		nodeEditor.camera = &camera;
 		nodeEditor.trackDirty = &trackDirty;
 
 		camera.updateProj(window, 0.0f);
@@ -744,7 +752,7 @@ private:
 			id[3] = glm::vec4(lastControlPoint, 0.0f);
 			glm::mat4 delta = glm::identity<glm::mat4>();
 
-			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
+			//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
 			curve.setControlPoint(lastHoveredControlPointIndex, lastControlPoint + glm::vec3(delta[3][0], delta[3][1], delta[3][2]));
 			trackDirty = true;
 			return;
@@ -768,7 +776,7 @@ private:
 			glm::mat4 id = glm::identity<glm::mat4>();
 			glm::vec3 lastControlPoint = curve.getControlPoint(lastHoveredControlPointIndex);
 			id[3] = glm::vec4(lastControlPoint, 0.0f);
-			ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
+			//ImGuizmo::Manipulate(glm::value_ptr(camera.view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id));
 		}
 		else
 		{
