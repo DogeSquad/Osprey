@@ -94,37 +94,61 @@ void Camera::onCursor(GLFWwindow* window, double xpos, double ypos)
 
 	float dx = xpos - this->lastX;
 	float dy = ypos - this->lastY;
+
+	double prevX = this->lastX;
+	double prevY = this->lastY;
 	this->lastX = xpos;
 	this->lastY = ypos;
 
-	// Orbit rotation
 	if (this->leftDown) {
 		this->yaw -= (float)dx * rotateSpeed;
 		this->pitch += (float)dy * rotateSpeed;
-
-		if (this->pitch > this->maxPitch)  this->pitch = this->maxPitch;
+		if (this->pitch > this->maxPitch) this->pitch = this->maxPitch;
 		if (this->pitch < -this->maxPitch) this->pitch = -this->maxPitch;
-
 		this->updateView(window, 0.0f);
 	}
 
-	// Pan on XZ plane (Y-up)
 	if (this->rightDown) {
-		glm::vec3 forward = -glm::normalize(glm::vec3{
-			sinf(this->yaw), 0, cosf(this->yaw)
-			});
+		int width, height;
+		glfwGetWindowSize(window, &width, &height);
 
-		glm::vec3 right = glm::normalize(glm::cross(forward, UP_DIR));
+		float currentNdcX = (2.0f * (float)xpos / width) - 1.0f;
+		float currentNdcY =  (2.0f * (float)ypos / height) - 1.0f;
+		float lastNdcX = (2.0f * (float)prevX / width) - 1.0f;
+		float lastNdcY = (2.0f * (float)prevY / height) - 1.0f;
 
-		this->target -= right * (float)dx * panSpeed;
-		this->target += forward * (float)dy * panSpeed;
+		glm::mat4 invProjView = glm::inverse(proj * view);
 
+		// Unproject to get ray directions from the actual eye position
+		auto getRayDir = [&](float ndcX, float ndcY) -> glm::vec3 {
+			glm::vec4 rayClip = glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+			glm::vec4 rayWorld = invProjView * rayClip;
+			rayWorld /= rayWorld.w;
+			return glm::normalize(glm::vec3(rayWorld) - this->position);
+			};
+
+		// Intersect ray from eye with XZ plane (y = 0)
+		auto intersectXZPlane = [&](glm::vec3 rayDir) -> glm::vec3 {
+			if (abs(rayDir.y) < 0.001f) return glm::vec3(0.0f);
+			float t = -this->position.y / rayDir.y;
+			if (t < 0) return glm::vec3(0.0f);
+			return this->position + t * rayDir;
+		};
+
+		glm::vec3 currentWorldPos = intersectXZPlane(getRayDir(currentNdcX, currentNdcY));
+		glm::vec3 lastWorldPos = intersectXZPlane(getRayDir(lastNdcX, lastNdcY));
+
+		glm::vec3 panDelta = lastWorldPos - currentWorldPos;
+		this->target += panDelta;
 		this->updateView(window, 0.0f);
 	}
 }
 void Camera::onScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
 	if (!userControlled) return;
+
+	this->leftDown = false;
+	this->rightDown = false;
 
 	this->distance -= (float)yoffset * 0.5f;
 	if (this->distance < this->minDistance)

@@ -157,17 +157,16 @@ private:
 	}
 	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 	{
-		if (ImGui::GetIO().WantCaptureMouse) {
-			ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-			return;
-		}
+		ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
 
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (app->showAbout) return;
 
 		app->nodeEditor.onMouseButtonCallback(window, button, action, mods);
 
-		app->getCamera()->onMouseButton(window, button, action, mods);
+		if (!ImGui::GetIO().WantCaptureMouse || action == GLFW_RELEASE) {
+			app->getCamera()->onMouseButton(window, button, action, mods);
+		}
 	}
 	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 	{
@@ -179,8 +178,9 @@ private:
 			app->nodeEditor.onCursorPosCallback(window, xpos, ypos);
 		}
 
-		app->getCamera()->onCursor(window, xpos, ypos);
-
+		if (!ImGuizmo::IsUsing()) {
+			app->getCamera()->onCursor(window, xpos, ypos);
+		}
 		app->screenCursorPos = glm::vec2(xpos, ypos);
 	}
 	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
@@ -188,26 +188,27 @@ private:
 		auto app = static_cast<OspreyApp*>(glfwGetWindowUserPointer(window));
 		if (app->showAbout) return;
 
-		if (ImGui::GetIO().WantCaptureMouse) 
-		{
-			ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-			return;
-		}
+		ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+		//if (ImGui::GetIO().WantCaptureMouse) 
+		//{
+		//	ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+		//	return;
+		//}
 
-		if (app->track && app->lastHoveredControlPointIndex != -1)
-		{
-			float unclampedRoll = app->track->nodes[app->lastHoveredControlPointIndex].roll + (float)yoffset * 1.5f;
-			app->track->nodes[app->lastHoveredControlPointIndex].roll = unclampedRoll;
-			//if (unclampedRoll > 360.0f) {
-			//	app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
-			//}
-			//else if (unclampedRoll < -360.0f) {
-			//	app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
-			//}
+		//if (app->track && app->lastHoveredControlPointIndex != -1)
+		//{
+		//	float unclampedRoll = app->track->nodes[app->lastHoveredControlPointIndex].roll + (float)yoffset * 1.5f;
+		//	app->track->nodes[app->lastHoveredControlPointIndex].roll = unclampedRoll;
+		//	//if (unclampedRoll > 360.0f) {
+		//	//	app->track->roll[app->lastHoveredControlPointIndex] -= 360.0f;
+		//	//}
+		//	//else if (unclampedRoll < -360.0f) {
+		//	//	app->track->roll[app->lastHoveredControlPointIndex] += 360.0f;
+		//	//}
 
-			app->trackDirty = true;
-			return;
-		}
+		//	app->trackDirty = true;
+		//	return;
+		//}
 
 		app->getCamera()->onScroll(window, xoffset, yoffset);
 	}
@@ -434,8 +435,7 @@ private:
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
-			size_t segIndex;
-			glm::vec3 pos = curve.evaluate(s, &segIndex);
+			glm::vec3 pos = curve.evaluate(s);
 
 			// Clamp end
 			if (s >= totalLength)
@@ -464,13 +464,14 @@ private:
 			//s += v * step + 0.5f * a * step * step;
 			//v += a * step;
 
-			if (segIndex <= 10) 
-			{
-				v = glm::max(2.5f, v);
-			}
 			// Clamp s to track
 			if (s < 0) { s = 0; v = 0; }
 			if (s > totalLength) { s = totalLength; v = 0; }
+
+			if (s <= 30.0f) 
+			{
+				v = glm::max(2.5f, v);
+			}
 
 			remainingTime -= step;
 		}
@@ -626,9 +627,9 @@ private:
 				showTranslateOnHover();
 				ImGui::Begin("Track Controls", nullptr, flags);
 
-				if (ImGui::SliderFloat("Arc Length", &u, 0.0f, 1.0f))
+				if (ImGui::SliderFloat("Arc Length", &s, 0.0f, track->totalLength()))
 				{
-					s = track->curve->normalizedToArcLength(u);
+					//s = track->curve->normalizedToArcLength(u);
 					v = 0;
 				}
 				else

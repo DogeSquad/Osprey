@@ -19,7 +19,7 @@ struct TrackMesh
 	Track* track;
 
 	const float sampleSpacing = 0.5f;
-	const float   tieEvery = 1.0f;
+	const float tieEvery = 1.25f;
 
 	const int segments = 30;
 
@@ -74,10 +74,11 @@ struct TrackMesh
 	void generateCrossTie(
 		glm::vec3 center, glm::vec3 right, glm::vec3 up,
 		glm::vec3 forward, float railOffset, glm::vec3 color,
-		int segments = 10, float tieRadius = 0.008f)
+		int segments = 10, float tieRadius = 0.008f, bool formTriangle = true)
 	{
 		glm::vec3 leftPos = center - right * railOffset;
 		glm::vec3 rightPos = center + right * railOffset;
+		glm::vec3 centerPos = center - up * track->profile.mainSplineOffset;
 
 		// build two positions and frames for a single tube segment
 		std::vector<glm::vec3> tiePositions = { leftPos, rightPos };
@@ -95,6 +96,8 @@ struct TrackMesh
 		};
 
 		generateTube(tiePositions, tieFrames, glm::vec2(0.0f), tieRadius, segments, color);
+		generateTube({leftPos, centerPos}, tieFrames, glm::vec2(0.0f), tieRadius, segments, color);
+		generateTube({rightPos, centerPos}, tieFrames, glm::vec2(0.0f), tieRadius, segments, color);
 	}
 
 	void generateMesh()
@@ -114,7 +117,10 @@ struct TrackMesh
 		int numSamples = static_cast<int>(totalLength / sampleSpacing);
 
 		for (int i = 0; i <= numSamples; i++) {
-			float s = (float)i / (float)numSamples * totalLength;
+			float t = (float)i / (float)(numSamples - 1);
+			t = glm::clamp(t, 0.0f, 1.0f);
+			float s = t * totalLength;
+
 			glm::mat4 fren = track->evaluateFrenet(s);
 			glm::vec3 pos = fren[3];
 
@@ -166,7 +172,9 @@ struct TrackMesh
 		int numSamples = static_cast<int>(totalLength / sampleSpacing);
 
 		for (int i = 0; i <= numSamples; i++) {
-			float s = (float)i / (float)numSamples * totalLength;
+			float t = (float)i / (float)(numSamples - 1);
+			t = glm::clamp(t, 0.0f, 1.0f);
+			float s = t * totalLength;
 			glm::mat4 fren = track->evaluateFrenet(s);
 			glm::vec3 pos = fren[3];
 

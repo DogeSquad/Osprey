@@ -11,6 +11,7 @@
 #include "constants.h"
 #include "piecewise_linear_curve.h"
 #include "hermite_curve.h"
+#include "nurbs_curve.h"
 
 namespace osp
 {
@@ -48,11 +49,13 @@ struct Track
 		glm::vec3 position;
 		float roll = 0.0f;
 		float weight = 1.0f;
+		bool pinned = true;
 
-		Node(glm::vec3 _position, float _roll, float _weight) :
+		Node(glm::vec3 _position, float _roll, float _weight, float _pinned = false) :
 			position(_position),
 			roll(_roll),
-			weight(_weight){}
+			weight(_weight),
+			pinned(_pinned){}
 	};
 
 
@@ -66,17 +69,34 @@ struct Track
 
 	void createEmpty()
 	{
-		std::unique_ptr<ICurve> tempCurve = std::make_unique<HermiteCurve>();
+		std::unique_ptr<ICurve> tempCurve = std::make_unique<NURBSCurve>();
 		nodes.clear();
 
 		tempCurve->appendControlPoint(glm::vec3(0.0f));
 		tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
 
-		nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f);
-		nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f);
+		nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f, true);
+		nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f, true);
+
+		// Set up NURBS-specific properties
+		if (NURBSCurve* nurbsCurve = dynamic_cast<NURBSCurve*>(tempCurve.get())) {
+			nurbsCurve->setPinned(0, true);  // This will now regenerate knots
+			nurbsCurve->setPinned(1, true);  // This will now regenerate knots
+		}
 
 		curve = std::move(tempCurve);
-		update();curve->update();
+		update(); // Final update for everything else
+		//std::unique_ptr<ICurve> tempCurve = std::make_unique<HermiteCurve>();
+		//nodes.clear();
+
+		//tempCurve->appendControlPoint(glm::vec3(0.0f));
+		//tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
+
+		//nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f);
+		//nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f);
+
+		//curve = std::move(tempCurve);
+		//update();
 	}
 
 	void load(const std::string& path) 
@@ -93,11 +113,24 @@ struct Track
 		else if ((curveType = config["curveType"].as<std::string>()).compare("hermite") == 0){
 			tempCurve = std::make_unique<HermiteCurve>();
 		}
-		
+		else if ((curveType = config["curveType"].as<std::string>()).compare("nurbs") == 0) {
+			tempCurve = std::make_unique<NURBSCurve>();
+		}
+		else {
+			tempCurve = std::make_unique<PiecewiseLinearCurve>();
+		}
 		if (config["points"] && config["roll"]) {
 			auto points = config["points"].as<std::vector<std::vector<float>>>();
+			size_t N = points.size();
 			auto rolls = config["roll"].as<std::vector<float>>();
-			for (size_t i = 0; i < points.size(); i++) {
+			std::vector<float> weights;
+			if (config["weight"]) {
+				weights = config["weight"].as<std::vector<float>>();
+			}
+			else {
+				weights = std::vector<float>(N, 1.0f);
+			}
+			for (size_t i = 0; i < N; i++) {
 				float x = points[i][0];
 				float y = points[i][1];
 				float z = points[i][2];
@@ -136,6 +169,9 @@ struct Track
 		else if (HermiteCurve* tempCurve = dynamic_cast<HermiteCurve*>(curve.get())) {
 			curveType = "hermite";
 		}
+		else if (NURBSCurve* tempCurve = dynamic_cast<NURBSCurve*>(curve.get())) {
+			curveType = "nurbs";
+		}
 		else {
 			curveType = "linear";
 		}
@@ -155,6 +191,11 @@ struct Track
 			out << nodes[i].roll;
 		}
 		out << YAML::EndSeq;
+		out << YAML::Key << "weight" << YAML::Value << YAML::BeginSeq;
+		for (size_t i = 0; i < N; i++) {
+			out << nodes[i].weight;
+		}
+		out << YAML::EndSeq;
 		out << YAML::EndMap;
 
 
@@ -166,6 +207,12 @@ struct Track
 	void applyModification(size_t i) 
 	{
 		curve->setControlPoint(i, nodes[i].position);
+		curve->setWeight(i, nodes[i].weight);
+
+		if (NURBSCurve* nurbsCurve = dynamic_cast<NURBSCurve*>(curve.get())) {
+			nurbsCurve->setPinned(i, nodes[i].pinned);
+		}
+
 		curve->update();
 	}
 
@@ -196,6 +243,7 @@ struct Track
 
 		// find roll at this arc length by interpolating between nodes
 		float  t = curve->normalizedInSegment(s);
+		seg = std::min(seg, nodes.size() - 2);
 		float  rollVal = glm::mix(nodes[seg].roll, nodes[seg+1].roll, t);
 
 		// apply roll on top of transport frame

@@ -19,7 +19,6 @@ struct Camera {
 	float near = 0.01f;
 
 	float rotateSpeed = 0.005f;
-	float panSpeed = 0.005f;
 
 	float pitch = 0.0f;
 	float maxPitch = glm::radians(89.0f);

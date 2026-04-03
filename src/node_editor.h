@@ -109,21 +109,52 @@ struct NodeEditor {
 		glfwGetWindowSize(camera->window, screenSize, screenSize + 1);
 		if (!track) return;
 
+		if (selected)
+		{
+			glm::vec3 controlPoint = selected->position;
+			glm::vec2 screenPos = camera->projectPositionToScreen(controlPoint, screenSize[0], screenSize[1]);
+
+			if (screenPos.x != -1.0f && screenPos.y != -1.0f) {
+				float scale = 1.0f / (1.0f + camera->depthOfPoint(controlPoint) * 0.1f);
+				ImGuizmo::GetStyle().CenterCircleSize = scale * hoveringRadius;
+
+				glm::mat4 proj(camera->proj);
+				proj[1][1] *= -1;
+				glm::mat4 id = glm::identity<glm::mat4>();
+				id[3] = glm::vec4(controlPoint, 0.0f);
+				glm::mat4 delta = glm::identity<glm::mat4>();
+
+				ImGuizmo::Manipulate(glm::value_ptr(camera->view), glm::value_ptr(proj), ImGuizmo::OPERATION::TRANSLATE, ImGuizmo::MODE::WORLD, glm::value_ptr(id), glm::value_ptr(delta));
+				if (ImGuizmo::IsUsingAny()) {
+					selected->position += glm::vec3(delta[3][0], delta[3][1], delta[3][2]);
+					track->applyModification(selectedIndex);
+					*trackDirty = true;
+				}
+			}
+
+			//curve.setControlPoint(lastHoveredControlPointIndex, lastControlPoint + glm::vec3(delta[3][0], delta[3][1], delta[3][2]));
+			//trackDirty = true;
+		}
+
+
+
 		ImGui::Begin("Nodes");
 		bool wasSelectedEnumerated = false;
 		for (size_t i = 0; i < track->nodes.size(); i++) {
 			Track::Node& node = track->nodes[i];
 
-			ImDrawList* drawList = ImGui::GetForegroundDrawList();
+			ImDrawList* drawList = ImGui::GetBackgroundDrawList();
 			glm::vec3 controlPoint = node.position;
 			glm::vec2 screenPos = camera->projectPositionToScreen(controlPoint, screenSize[0], screenSize[1]);
 
 			if (screenPos.x != -1.0f && screenPos.y != -1.0f) {
 				float scale = 1.0f / (1.0f + camera->depthOfPoint(controlPoint) * 0.1f);
 				float alpha = (hovered == &node) ? 255 : 100;
-				drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), scale * hoveringRadius, IM_COL32(230, 230, 230, alpha));
 				if (selected == &node) {
-					drawList->AddCircle(ImVec2(screenPos.x, screenPos.y), scale * hoveringRadius, IM_COL32(0, 0, 0, 255), 0, scale * 13.0f);
+					//drawList->AddCircle(ImVec2(screenPos.x, screenPos.y), scale * hoveringRadius, IM_COL32(0, 0, 0, 255), 0, scale * 10.0f);
+				}
+				else {
+					drawList->AddCircleFilled(ImVec2(screenPos.x, screenPos.y), scale * hoveringRadius, IM_COL32(230, 230, 230, alpha));
 				}
 			}
 
@@ -132,6 +163,7 @@ struct NodeEditor {
 				selected = &node;
 				selectedIndex = i;
 			}
+
 			if (&node == selected) {
 				wasSelectedEnumerated = true;
 			}
@@ -142,9 +174,24 @@ struct NodeEditor {
 		ImGui::End();
 
 		if (selected) {
-			ImGui::Begin(std::string("Node #" + std::to_string(selectedIndex) + selectedNodeWindowId).c_str());
+			ImGuiIO& io = ImGui::GetIO();
+			ImVec2 winSize(350.0f, 100.0f);
+			ImVec2 pos = ImVec2(io.DisplaySize.x - winSize.x, 19.0f);
+
+			ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+			ImGui::SetNextWindowSize(winSize);
+
+			ImGuiWindowFlags windowFlags =
+				ImGuiWindowFlags_NoDecoration
+				| ImGuiWindowFlags_NoMove
+				| ImGuiWindowFlags_NoSavedSettings
+				| ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+			ImGui::Begin(std::string("Node #" + std::to_string(selectedIndex) + selectedNodeWindowId).c_str(), (bool*)0, windowFlags);
 			if (ImGui::DragFloat3("Position", glm::value_ptr(selected->position), 0.01f)
-				|| ImGui::DragFloat("Roll", &selected->roll)) {
+				|| ImGui::DragFloat("Roll", &selected->roll)
+				|| ImGui::DragFloat("Weight", &selected->weight, 0.01f, 0.01f, 5.0f)
+				|| ImGui::Checkbox("Pinned", &selected->pinned)) {
 				track->applyModification(selectedIndex);
 				*trackDirty = true;
 			}
