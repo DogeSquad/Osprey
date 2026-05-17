@@ -57,7 +57,6 @@ import vulkan_hpp;
 #include "render_attachments.h"
 #include "pipeline.h"
 #include "frame.h"
-#include "piecewise_linear_curve.h"
 #include "node_editor.h"
 
 constexpr uint32_t WIDTH = 800;
@@ -425,17 +424,14 @@ private:
 
 	void doPhysics(double dt)
 	{
-		auto& curve = *track->curve;
-
 		float remainingTime = (float)dt;
 		float dtSub = 0.001f; // max substep
-
-		float totalLength = curve.totalLength();
+		float totalLength = track->totalLength();
 
 		while (remainingTime > 0) {
 			float step = std::min(dtSub, remainingTime);
 
-			glm::vec3 pos = curve.evaluate(s);
+			glm::vec3 pos = track->evaluatePosition(s);
 
 			// Clamp end
 			if (s >= totalLength)
@@ -443,7 +439,7 @@ private:
 				v = 0;
 				return;
 			}
-			glm::vec3 tangent = glm::normalize(curve.getTangentAtLength(s));
+			glm::vec3 tangent = glm::normalize(track->tangentAtArcLength(s));
 
 			float a = 9.81f * glm::dot(GRAVITY, tangent);
 			
@@ -639,7 +635,7 @@ private:
 						float physicsDt = std::min((float)timeDiff, dt);
 						doPhysics(physicsDt);
 					}
-					u = track->curve->arcLengthToNormalized(s);
+					u = s / track->totalLength();
 				}
 				//ImGui::Text("Segment: %i", track->curve->getSegmentAtLength(s));
 				ImGui::Checkbox("Simulate Physics", &doSimulate);

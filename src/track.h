@@ -9,8 +9,8 @@
 
 #include "mesh.h"
 #include "constants.h"
-#include "piecewise_linear_curve.h"
-#include "hermite_curve.h"
+//#include "piecewise_linear_curve.h"
+//#include "hermite_curve.h"
 #include "nurbs_curve.h"
 
 namespace osp
@@ -37,7 +37,7 @@ struct Track
 		float s;
 	};
 
-	struct Node {
+	struct TrackNode {
 		// Idea for Later: Make Node more general as in a thing selectable and editable in 3d space. Idea for other node types
 		// KineticNode: Controls custom movement on a track.
 		// DesignNode: Control the track design, parameterised by position (s) on track.
@@ -49,301 +49,345 @@ struct Track
 		glm::vec3 position;
 		float roll = 0.0f;
 		float weight = 1.0f;
-		bool pinned = true;
+		bool pinned = false;
 
-		Node(glm::vec3 _position, float _roll, float _weight, float _pinned = false) :
+		TrackNode() = default;
+		TrackNode(glm::vec3 _position, float _roll, float _weight, float _pinned = false) :
 			position(_position),
 			roll(_roll),
 			weight(_weight),
 			pinned(_pinned){}
 	};
 
-
 	// TODO Handle insufficient number of control points
 	std::unique_ptr<ICurve> curve;
-	std::vector<Node>       nodes;
+	std::vector<TrackNode>  nodes;
 
-	std::vector<TransportFrame> transportFrames;
+    // Arc length lookup table
+    std::vector<float> arcLengthTable;
+    static const int ARC_LENGTH_SAMPLES = 1000;
 
-	Track() = default;
+    Track() = default;
 
-	void createEmpty()
-	{
-		std::unique_ptr<ICurve> tempCurve = std::make_unique<NURBSCurve>();
-		nodes.clear();
+    void createEmpty() {
+        curve = std::make_unique<NURBSCurve>();
+        nodes.clear();
 
-		tempCurve->appendControlPoint(glm::vec3(0.0f));
-		tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
+        nodes.emplace_back(glm::vec3(0.0f, 0.0f, 0.0f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(2.0f, 2.0f, 0.5f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(4.0f, 2.0f, 1.0f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(6.0f, 0.0f, 0.5f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(8.0f, 0.0f, 0.5f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(10.0f, 1.0f, 0.0f), 0.0f, 1.0f, false);
+        nodes.emplace_back(glm::vec3(12.0f, 0.0f, 0.0f), 0.0f, 1.0f, false);
 
-		nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f, true);
-		nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f, true);
+        //nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f, true);
+        //nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f, true);
 
-		// Set up NURBS-specific properties
-		if (NURBSCurve* nurbsCurve = dynamic_cast<NURBSCurve*>(tempCurve.get())) {
-			nurbsCurve->setPinned(0, true);  // This will now regenerate knots
-			nurbsCurve->setPinned(1, true);  // This will now regenerate knots
-		}
+        syncToMathCurve();
+        update();
+    }
 
-		curve = std::move(tempCurve);
-		update(); // Final update for everything else
-		//std::unique_ptr<ICurve> tempCurve = std::make_unique<HermiteCurve>();
-		//nodes.clear();
+    void load(const std::string& path) {
+        YAML::Node config = YAML::LoadFile(path);
 
-		//tempCurve->appendControlPoint(glm::vec3(0.0f));
-		//tempCurve->appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
+        std::string curveType = config["curveType"] ? config["curveType"].as<std::string>() : "linear";
 
-		//nodes.emplace_back(glm::vec3(0.0f), 0.0f, 1.0f);
-		//nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f);
+        //if (curveType == "linear") {
+        //    curve = std::make_unique<PiecewiseLinearCurve>();
+        //}
+        //else if (curveType == "hermite") {
+        //    curve = std::make_unique<HermiteCurve>();
+        //}
+        if (curveType == "nurbs") {
+            curve = std::make_unique<NURBSCurve>();
+        }
+        //else {
+        //    curve = std::make_unique<PiecewiseLinearCurve>();
+        //}
 
-		//curve = std::move(tempCurve);
-		//update();
-	}
+        nodes.clear();
+        if (config["points"] && config["roll"]) {
+            auto points = config["points"].as<std::vector<std::vector<float>>>();
+            auto rolls = config["roll"].as<std::vector<float>>();
 
-	void load(const std::string& path) 
-	{
-		YAML::Node config = YAML::LoadFile(path);
+            std::vector<float> weights = config["weight"] ?
+                config["weight"].as<std::vector<float>>() :
+                std::vector<float>(points.size(), 1.0f);
 
-		std::string curveType;
-		std::unique_ptr<ICurve> tempCurve;
+            for (size_t i = 0; i < points.size(); i++) {
+                glm::vec3 pos(points[i][0], points[i][1], points[i][2]);
+                float roll = i < rolls.size() ? rolls[i] : 0.0f;
+                float weight = i < weights.size() ? weights[i] : 1.0f;
 
-		nodes.clear();
-		if (!config["curveType"] || (curveType = config["curveType"].as<std::string>()).compare("linear") == 0) {
-			tempCurve = std::make_unique<PiecewiseLinearCurve>();
-		}
-		else if ((curveType = config["curveType"].as<std::string>()).compare("hermite") == 0){
-			tempCurve = std::make_unique<HermiteCurve>();
-		}
-		else if ((curveType = config["curveType"].as<std::string>()).compare("nurbs") == 0) {
-			tempCurve = std::make_unique<NURBSCurve>();
-		}
-		else {
-			tempCurve = std::make_unique<PiecewiseLinearCurve>();
-		}
-		if (config["points"] && config["roll"]) {
-			auto points = config["points"].as<std::vector<std::vector<float>>>();
-			size_t N = points.size();
-			auto rolls = config["roll"].as<std::vector<float>>();
-			std::vector<float> weights;
-			if (config["weight"]) {
-				weights = config["weight"].as<std::vector<float>>();
-			}
-			else {
-				weights = std::vector<float>(N, 1.0f);
-			}
-			for (size_t i = 0; i < N; i++) {
-				float x = points[i][0];
-				float y = points[i][1];
-				float z = points[i][2];
-		
-				nodes.emplace_back(glm::vec3(x, y, z), rolls[i], 1.0f);
-				// Add the point to the vector
-				tempCurve->appendControlPoint(glm::vec3(x, y, z));
-			}
-		}
+                nodes.emplace_back(pos, roll, weight, false);
+            }
+        }
 
+        syncToMathCurve();
+        update();
+    }
 
-		//if (config["points"]) {
-		//	for (const auto& point : config["points"]) {
-		//		float x = point[0].as<float>();
-		//		float y = point[1].as<float>();
-		//		float z = point[2].as<float>();
-		//
-		//		// Add the point to the vector
-		//		tempCurve->appendControlPoint(glm::vec3(x, y, z));
-		//	}
-		//}
-		//if (config["roll"]) {
-		//	auto rolls = config["roll"].as<std::vector<float>>();
-		//}
-		
-		curve = std::move(tempCurve);
-		curve->update();
-	}
+    void save(const std::string& path) {
+        std::string curveType = "nurbs"; // Default
+        //if (dynamic_cast<PiecewiseLinearCurve*>(curve.get())) {
+        //    curveType = "linear";
+        //}
+        //else if (dynamic_cast<HermiteCurve*>(curve.get())) {
+        //    curveType = "hermite";
+        //}
+        if (dynamic_cast<NURBSCurve*>(curve.get())) {
+            curveType = "nurbs";
+        }
 
-	void save(const std::string& path)
-	{
-		std::string curveType = "linear";
-		if (PiecewiseLinearCurve* tempCurve = dynamic_cast<PiecewiseLinearCurve*>(curve.get())) {
-			curveType = "linear";
-		} 
-		else if (HermiteCurve* tempCurve = dynamic_cast<HermiteCurve*>(curve.get())) {
-			curveType = "hermite";
-		}
-		else if (NURBSCurve* tempCurve = dynamic_cast<NURBSCurve*>(curve.get())) {
-			curveType = "nurbs";
-		}
-		else {
-			curveType = "linear";
-		}
-		const size_t N = nodes.size();
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "curveType" << YAML::Value << curveType;
 
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "curveType" << YAML::Value << curveType;
-		out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
-		for (size_t i = 0; i < N; i++) {
-			glm::vec3 p = nodes[i].position;
-			out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
-		}
-		out << YAML::EndSeq;
-		out << YAML::Key << "roll" << YAML::Value << YAML::BeginSeq;
-		for (size_t i = 0; i < N; i++) {
-			out << nodes[i].roll;
-		}
-		out << YAML::EndSeq;
-		out << YAML::Key << "weight" << YAML::Value << YAML::BeginSeq;
-		for (size_t i = 0; i < N; i++) {
-			out << nodes[i].weight;
-		}
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
+        out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
+        for (const auto& node : nodes) {
+            out << YAML::Flow << YAML::BeginSeq << node.position.x << node.position.y << node.position.z << YAML::EndSeq;
+        }
+        out << YAML::EndSeq;
 
+        out << YAML::Key << "roll" << YAML::Value << YAML::BeginSeq;
+        for (const auto& node : nodes) {
+            out << node.roll;
+        }
+        out << YAML::EndSeq;
 
-		std::ofstream fout(path);
-		fout << out.c_str();
-		fout.close();
-	}
+        out << YAML::Key << "weight" << YAML::Value << YAML::BeginSeq;
+        for (const auto& node : nodes) {
+            out << node.weight;
+        }
+        out << YAML::EndSeq;
 
-	void applyModification(size_t i) 
-	{
-		curve->setControlPoint(i, nodes[i].position);
-		curve->setWeight(i, nodes[i].weight);
+        out << YAML::EndMap;
 
-		if (NURBSCurve* nurbsCurve = dynamic_cast<NURBSCurve*>(curve.get())) {
-			nurbsCurve->setPinned(i, nodes[i].pinned);
-		}
+        std::ofstream fout(path);
+        fout << out.c_str();
+    }
 
-		curve->update();
-	}
+    // Track evaluation methods using new architecture
+    glm::vec3 evaluatePosition(float s) {
+        float u = arcLengthToParameter(s);
+        return curve->evaluate(u);
+    }
 
-	void addNextSegment()
-	{
-		curve->extendBack();
-		nodes.emplace_back(curve->getControlPoint(curve->getNumControlPoints() - 1), nodes[nodes.size()-1].roll, 1.0f);
-		curve->update();
-	}
+    glm::mat4 evaluateFrenet(float s) {
+        // Clamp s to valid range
+        s = glm::clamp(s, 0.0f, totalLength());
 
-	void removeLastSegment()
-	{
-		curve->removeBack();
-		nodes.pop_back();
-		curve->update();
-	}
+        glm::vec3 position = evaluatePosition(s);
+        glm::vec3 tangent = tangentAtArcLength(s);
 
-	glm::vec3 evaluatePosition(float s)
-	{
-		return curve->evaluate(s);
-	}
+        // Check for invalid position or tangent
+        if (std::isnan(position.x) || std::isnan(position.y) || std::isnan(position.z) ||
+            std::isnan(tangent.x) || std::isnan(tangent.y) || std::isnan(tangent.z)) {
+            std::cerr << "ERROR: NaN in position or tangent at s=" << s << std::endl;
+            return glm::identity<glm::mat4>();
+        }
 
-	glm::mat4 evaluateFrenet(float s)
-	{
-		size_t seg;
-		glm::vec3 pos = curve->evaluate(s, &seg);
-		auto      frame = sampleTransportFrame(s);
+        float tangentLength = glm::length(tangent);
+        if (tangentLength < 1e-6f) {
+            std::cerr << "ERROR: Zero tangent at s=" << s << std::endl;
+            return glm::identity<glm::mat4>();
+        }
 
-		// find roll at this arc length by interpolating between nodes
-		float  t = curve->normalizedInSegment(s);
-		seg = std::min(seg, nodes.size() - 2);
-		float  rollVal = glm::mix(nodes[seg].roll, nodes[seg+1].roll, t);
+        glm::vec3 forward = tangent / tangentLength; // Normalize safely
+        float rollAngle = interpolateRoll(s);
 
-		// apply roll on top of transport frame
-		glm::mat3 rollRot = glm::mat3(glm::rotate(glm::radians(rollVal), frame.forward));
-		glm::vec3 right = glm::normalize(rollRot * frame.right);
-		glm::vec3 up = glm::normalize(glm::cross(right, frame.forward));
+        if (std::isnan(rollAngle) || std::isinf(rollAngle)) {
+            rollAngle = 0.0f; // Fallback
+        }
 
-		glm::mat4 result = glm::identity<glm::mat4>();
-		result[0] = glm::vec4(right, 0);
-		result[1] = glm::vec4(up, 0);
-		result[2] = glm::vec4(frame.forward, 0);
-		result[3] = glm::vec4(pos, 1);
-		return result;
-	}
+        // Build frame with safety checks
+        glm::vec3 worldUp = glm::vec3(0, 1, 0);
+        glm::vec3 right = glm::cross(forward, worldUp);
+        float rightLength = glm::length(right);
 
-	float totalLength()
-	{
-		return curve->totalLength();
-	}
+        if (rightLength < 1e-6f) {
+            // Forward is parallel to world up, use different reference
+            worldUp = glm::vec3(1, 0, 0);
+            right = glm::cross(forward, worldUp);
+            rightLength = glm::length(right);
+        }
 
-	void update()
-	{
-		curve->update();
-		precomputeTransportFrames();
-	}
+        if (rightLength > 1e-6f) {
+            right = right / rightLength;
+        }
+        else {
+            right = glm::vec3(1, 0, 0); // Fallback
+        }
 
-	//
-	// Frenet Frame calculations
-	//
-	float samplesPerMeter = 2.0f;
+        glm::vec3 up = glm::cross(right, forward);
 
-	void precomputeTransportFrames() {
-		int numSamples = (int)(curve->totalLength() * samplesPerMeter + 0.5f);
+        // Apply roll
+        if (std::abs(rollAngle) > 1e-6f) {
+            glm::mat3 rollRotation = glm::rotate(glm::radians(rollAngle), forward);
+            right = rollRotation * right;
+            up = rollRotation * up;
+        }
 
-		transportFrames.clear();
-		transportFrames.reserve(numSamples);
+        glm::mat4 result = glm::identity<glm::mat4>();
+        result[0] = glm::vec4(right, 0);
+        result[1] = glm::vec4(up, 0);
+        result[2] = glm::vec4(forward, 0);
+        result[3] = glm::vec4(position, 1);
 
-		float total = totalLength();
+        return result;
+    }
 
-		// first frame — bootstrap with world up
-		float     s0 = 0.0f;
-		glm::vec3 t0 = glm::normalize(curve->getTangentAtLength(s0));
-		glm::vec3 r0 = glm::normalize(glm::cross(t0, glm::vec3(0, 1, 0)));
-		glm::vec3 u0 = glm::cross(r0, t0);
-		transportFrames.push_back({ r0, u0, t0, s0 });
+    float totalLength() {
+        return curve ? curve->length() : 0.0f;
+    }
 
-		for (int i = 1; i < numSamples; i++) {
-			float     s1 = (float)i / (numSamples - 1) * total;
-			glm::vec3 t1 = glm::normalize(curve->getTangentAtLength(s1));
+    void update() {
+        if (!curve) return;
+        curve->update();
+        buildArcLengthTable();
+    }
 
-			auto& prev = transportFrames.back();
+    // Node manipulation methods
+    void applyModification(size_t i) {
+        if (i >= nodes.size()) return;
 
-			// rotate previous frame to align with new tangent
-			glm::vec3 axis = glm::cross(prev.forward, t1);
-			float     len = glm::length(axis);
+        curve->setControlPoint(i, nodes[i].position);
 
-			TransportFrame frame;
-			frame.s = s1;
-			frame.forward = t1;
+        // Handle NURBS-specific properties
+        if (auto* nurbs = dynamic_cast<INURBSCurve*>(curve.get())) {
+            nurbs->setWeight(i, nodes[i].weight);
+            nurbs->setPinned(i, nodes[i].pinned);
+        }
 
-			if (len < 1e-6f) {
-				frame.right = prev.right;
-				frame.up = prev.up;
-			}
-			else {
-				axis = axis / len;
-				float dot = glm::clamp(glm::dot(prev.forward, t1), -1.0f, 1.0f);
-				float angle = acos(dot);
-				glm::mat3 rot = glm::mat3(glm::rotate(angle, axis));
-				frame.right = glm::normalize(rot * prev.right);
-				frame.up = glm::normalize(rot * prev.up);
-			}
-			transportFrames.push_back(frame);
-		}
-	}
+        update();
+    }
 
-	TransportFrame sampleTransportFrame(float s) {
-		if (transportFrames.empty()) return {};
-		s = glm::clamp(s, 0.0f, totalLength());
+    void addNextSegment() {
+        if (!curve) return;
 
-		// binary search for surrounding frames
-		auto it = std::lower_bound(transportFrames.begin(), transportFrames.end(), s,
-			[](const TransportFrame& f, float val) { return f.s < val; });
+        // Extend curve first
+        if (nodes.size() >= 2) {
+            glm::vec3 lastDir = nodes.back().position - nodes[nodes.size() - 2].position;
+            glm::vec3 newPos = nodes.back().position + lastDir;
+            nodes.emplace_back(newPos, nodes.back().roll, 1.0f, false);
+        }
+        else {
+            nodes.emplace_back(glm::vec3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f, false);
+        }
 
-		if (it == transportFrames.begin()) return transportFrames.front();
-		if (it == transportFrames.end())   return transportFrames.back();
+        curve->appendControlPoint(nodes.back().position);
+        update();
+    }
 
-		auto& f1 = *(it - 1);
-		auto& f2 = *it;
+    void removeLastSegment() {
+        if (nodes.empty()) return;
 
-		float t = (s - f1.s) / (f2.s - f1.s);
+        nodes.pop_back();
+        if (curve && curve->getNumControlPoints() > 0) {
+            curve->removeControlPoint(curve->getNumControlPoints() - 1);
+        }
+        update();
+    }
 
-		// slerp the axes for smooth interpolation
-		TransportFrame result;
-		result.s = s;
-		result.forward = glm::normalize(glm::mix(f1.forward, f2.forward, t));
-		result.right = glm::normalize(glm::mix(f1.right, f2.right, t));
-		result.up = glm::normalize(glm::mix(f1.up, f2.up, t));
-		return result;
-	}
+    glm::vec3 tangentAtArcLength(float s) {
+        float u = arcLengthToParameter(s);
+        return curve->tangent(u);
+    }
+
+private:
+    void syncToMathCurve() {
+        if (!curve) return;
+
+        // Clear curve and rebuild from nodes
+        while (curve->getNumControlPoints() > 0) {
+            curve->removeControlPoint(0);
+        }
+
+        for (const auto& node : nodes) {
+            curve->appendControlPoint(node.position);
+        }
+
+        // Set NURBS-specific properties
+        if (auto* nurbs = dynamic_cast<INURBSCurve*>(curve.get())) {
+            for (size_t i = 0; i < nodes.size(); i++) {
+                nurbs->setWeight(i, nodes[i].weight);
+                nurbs->setPinned(i, nodes[i].pinned);
+            }
+        }
+    }
+
+    float interpolateRoll(float s) {
+        if (nodes.size() < 2) return 0.0f;
+
+        float totalLength = this->totalLength();
+        if (totalLength <= 0) return 0.0f;
+
+        // For NURBS: use parameter space instead of arc length for roll
+        float u = arcLengthToParameter(s);
+
+        // Map parameter to node segments
+        float nodeFloat = u * (nodes.size() - 1);
+        int nodeIndex = (int)nodeFloat;
+        float localT = nodeFloat - nodeIndex;
+
+        nodeIndex = glm::clamp(nodeIndex, 0, (int)nodes.size() - 2);
+
+        return glm::mix(nodes[nodeIndex].roll, nodes[nodeIndex + 1].roll, localT);
+    }
+
+    void buildArcLengthTable() {
+        if (!curve) return;
+
+        arcLengthTable.clear();
+        arcLengthTable.resize(ARC_LENGTH_SAMPLES + 1);
+
+        float totalLength = 0.0f;
+        glm::vec3 prevPoint = curve->evaluate(0.0f);
+        arcLengthTable[0] = 0.0f;
+
+        for (int i = 1; i <= ARC_LENGTH_SAMPLES; i++) {
+            float u = (float)i / ARC_LENGTH_SAMPLES;
+            glm::vec3 currentPoint = curve->evaluate(u);
+            totalLength += glm::distance(prevPoint, currentPoint);
+            arcLengthTable[i] = totalLength;
+            prevPoint = currentPoint;
+        }
+    }
+
+    float arcLengthToParameter(float s) {
+        if (arcLengthTable.empty()) {
+            std::cerr << "ERROR: Arc length table is empty!" << std::endl;
+            return 0.0f;
+        }
+
+        float totalLength = arcLengthTable.back();
+        if (totalLength <= 0.0f || std::isnan(totalLength)) {
+            std::cerr << "ERROR: Invalid total length in arc table: " << totalLength << std::endl;
+            return 0.0f;
+        }
+
+        s = glm::clamp(s, 0.0f, totalLength);
+
+        auto it = std::lower_bound(arcLengthTable.begin(), arcLengthTable.end(), s);
+        size_t index = it - arcLengthTable.begin();
+
+        if (index == 0) return 0.0f;
+        if (index >= arcLengthTable.size()) return 0.999999f; // Avoid u=1.0
+
+        float s1 = arcLengthTable[index - 1];
+        float s2 = arcLengthTable[index];
+
+        if (std::abs(s2 - s1) < 1e-9f) {
+            return (float)(index - 1) / ARC_LENGTH_SAMPLES;
+        }
+
+        float u1 = (float)(index - 1) / ARC_LENGTH_SAMPLES;
+        float u2 = (float)index / ARC_LENGTH_SAMPLES;
+
+        float t = (s - s1) / (s2 - s1);
+        return glm::mix(u1, u2, t);
+    }
 };
 
 } // namespace osp

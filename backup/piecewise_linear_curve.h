@@ -66,35 +66,7 @@ struct PiecewiseLinearCurve : public ICurve {
 		controlTangents.push_back(glm::normalize(controlPoints[N - 1] - controlPoints[N - 2]));
 	}
 
-	float normalizedToArcLength(float u) override
-	{
-		if (cumulativeLengths.empty())
-			return 0.0f;
-		return u * cumulativeLengths.back();
-	}
-
-	float arcLengthToNormalized(float s) override
-	{
-		if (cumulativeLengths.empty())
-			return 0.0f;
-		return s / cumulativeLengths.back();
-	}
-
-	size_t getSegmentAtLength(float s) override
-	{
-		if (cumulativeLengths.empty())
-			return 0;
-		s = glm::clamp(s, 0.0f, cumulativeLengths.back());
-
-		// Find segment (maybe implement binary search?)
-		size_t seg = 0;
-		while (cumulativeLengths[seg] < s)
-			seg++;
-
-		return seg;
-	}
-
-	glm::vec3 getTangentAtLength(float s) override
+	glm::vec3 tangent(float u) override
 	{
 		if (cumulativeLengths.empty())
 			return UP_DIR;

@@ -4,264 +4,283 @@
 
 namespace osp {
 
-    struct NURBSCurve : public ICurve {
+    struct INURBSCurve : public ICurve {
+        virtual float getWeight(size_t i) const = 0;
+        virtual void setWeight(size_t i, float weight) = 0;
+        virtual bool getPinned(size_t i) const = 0;
+        virtual void setPinned(size_t i, bool pinned) = 0;
+    };
+
+    struct NURBSCurve : public INURBSCurve {
         std::vector<glm::vec3> controlPoints;
         std::vector<float> weights;
         std::vector<bool> pinned;
         std::vector<float> knots;
-        std::vector<float> segmentLengths;
-        std::vector<float> cumulativeLengths;
-        int degree = 1;
+        int degree = 3;
+
+        mutable float cachedLength = -1.0f;
 
         NURBSCurve() = default;
 
-        void generateKnots() {
-            if (controlPoints.empty()) return;
-
-            int n = controlPoints.size();
-            knots.clear();
-
-            // Simple uniform clamped knot vector
-            // For n control points and degree p: m = n + p + 1 knots
-            int m = n + degree + 1;
-            knots.resize(m);
-
-            // Clamped: first (degree+1) knots are 0, last (degree+1) knots are 1
-            for (int i = 0; i <= degree; i++) {
-                knots[i] = 0.0f;
-                knots[m - 1 - i] = 1.0f;
-            }
-
-            // Interior knots uniformly spaced
-            for (int i = degree + 1; i < n; i++) {
-                knots[i] = (float)(i - degree) / (n - degree);
-            }
-        }
-
-        float basisFunction(int i, int p, float u) const {
-            if (p == 0) {
-                return (u >= knots[i] && u < knots[i + 1]) ? 1.0f : 0.0f;
-            }
-
-            float left = 0.0f, right = 0.0f;
-
-            float denom1 = knots[i + p] - knots[i];
-            if (denom1 > 1e-7f) {
-                left = (u - knots[i]) / denom1 * basisFunction(i, p - 1, u);
-            }
-
-            float denom2 = knots[i + p + 1] - knots[i + 1];
-            if (denom2 > 1e-7f) {
-                right = (knots[i + p + 1] - u) / denom2 * basisFunction(i + 1, p - 1, u);
-            }
-
-            return left + right;
-        }
-
-        glm::vec3 evaluateNormalized(float u) {
+        glm::vec3 evaluate(float u) override {
             if (controlPoints.empty()) return glm::vec3(0.0f);
 
-            // Clamp parameter
             u = glm::clamp(u, 0.0f, 1.0f);
-            if (u == 1.0f) u = 0.999999f; // Avoid boundary issues
+
+            // Handle exact boundary case
+            if (u >= 1.0f) {
+                return controlPoints.back();
+            }
 
             glm::vec3 numerator(0.0f);
             float denominator = 0.0f;
 
-            // NURBS formula: sum(Ni,p(u) * wi * Pi) / sum(Ni,p(u) * wi)
             for (int i = 0; i < controlPoints.size(); i++) {
                 float basis = basisFunction(i, degree, u);
-                float weight = (i < weights.size()) ? weights[i] : 1.0f;
-                float weighted_basis = basis * weight;
+                if (std::isnan(basis) || std::isinf(basis)) {
+                    std::cerr << "Invalid basis function at i=" << i << " u=" << u << std::endl;
+                    continue;
+                }
 
-                numerator += weighted_basis * controlPoints[i];
-                denominator += weighted_basis;
+                float weight = weights[i];
+                float weightedBasis = basis * weight;
+
+                numerator += weightedBasis * controlPoints[i];
+                denominator += weightedBasis;
             }
 
-            return (denominator > 1e-7f) ? numerator / denominator : controlPoints[0];
+            if (denominator < 1e-7f) {
+                return controlPoints[0];
+            }
+
+            glm::vec3 result = numerator / denominator;
+
+            // Check for NaN in result
+            if (std::isnan(result.x) || std::isnan(result.y) || std::isnan(result.z)) {
+                std::cerr << "NaN in evaluate result at u=" << u << std::endl;
+                return controlPoints[0];
+            }
+
+            return result;
         }
 
-        void calculateLength() {
-            if (controlPoints.size() <= 1) {
-                segmentLengths.clear();
-                cumulativeLengths.clear();
-                return;
+        glm::vec3 tangent(float u) override {
+            const float eps = 0.001f;
+            glm::vec3 p1 = evaluate(glm::clamp(u - eps, 0.0f, 1.0f));
+            glm::vec3 p2 = evaluate(glm::clamp(u + eps, 0.0f, 1.0f));
+
+            glm::vec3 tangentVec = p2 - p1;
+            float tangentLength = glm::length(tangentVec);
+
+            if (tangentLength > 1e-6f) {
+                return tangentVec / tangentLength;
             }
 
-            // Calculate length by uniform sampling
-            const int samples = 100;
-            float totalLength = 0.0f;
+            // Fallback for degenerate cases
+            return glm::vec3(0, 0, 1);
+        }
 
-            segmentLengths.clear();
-            cumulativeLengths.clear();
-
-            // Create segments matching control point count - 1
-            size_t numSegments = controlPoints.size() - 1;
-            segmentLengths.resize(numSegments, 0.0f);
-
-            glm::vec3 prevPoint = evaluateNormalized(0.0f);
-
-            for (int i = 1; i <= samples; i++) {
-                float u = (float)i / samples;
-                glm::vec3 currentPoint = evaluateNormalized(u);
-                float segmentLength = glm::distance(prevPoint, currentPoint);
-
-                // Distribute length to appropriate segment
-                int segIndex = std::min((int)((u * numSegments)), (int)numSegments - 1);
-                segmentLengths[segIndex] += segmentLength;
-
-                totalLength += segmentLength;
-                prevPoint = currentPoint;
+        float length() const override {
+            if (cachedLength < 0) {
+                cachedLength = calculateLength();
             }
-
-            // Build cumulative lengths
-            cumulativeLengths.resize(numSegments);
-            float cumulative = 0.0f;
-            for (size_t i = 0; i < numSegments; i++) {
-                cumulative += segmentLengths[i];
-                cumulativeLengths[i] = cumulative;
-            }
+            return cachedLength;
         }
 
         void update() override {
-            if (controlPoints.empty()) return;
+            cachedLength = -1.0f;
 
-            // Auto-adjust degree
-            degree = std::min(3, (int)controlPoints.size() - 1);
-            if (degree < 1) degree = 1;
-
-            // Ensure arrays are properly sized
-            weights.resize(controlPoints.size(), 1.0f);
-            pinned.resize(controlPoints.size(), false);
+            // FIX: Don't reset existing data, just resize
+            if (weights.size() != controlPoints.size()) {
+                weights.resize(controlPoints.size(), 1.0f);
+            }
+            if (pinned.size() != controlPoints.size()) {
+                pinned.resize(controlPoints.size(), false); // Only add new elements as false
+            }
 
             generateKnots();
-            calculateLength();
-        }
-
-        // ICurve interface
-        float totalLength() const override {
-            return cumulativeLengths.empty() ? 0.0f : cumulativeLengths.back();
-        }
-
-        glm::vec3 evaluate(float s, size_t* segmentIndex = nullptr) override {
-            if (cumulativeLengths.empty()) return glm::vec3(0.0f);
-
-            s = glm::clamp(s, 0.0f, cumulativeLengths.back());
-            float u = s / cumulativeLengths.back();
-
-            if (segmentIndex) {
-                *segmentIndex = getSegmentAtLength(s);
-            }
-
-            return evaluateNormalized(u);
-        }
-
-        size_t getSegmentAtLength(float s) override {
-            if (cumulativeLengths.empty()) return 0;
-
-            s = glm::clamp(s, 0.0f, cumulativeLengths.back());
-
-            for (size_t i = 0; i < cumulativeLengths.size(); i++) {
-                if (s <= cumulativeLengths[i]) {
-                    return i;
-                }
-            }
-            return cumulativeLengths.size() - 1;
-        }
-
-        glm::vec3 getTangentAtLength(float s) override {
-            float u = s / (cumulativeLengths.empty() ? 1.0f : cumulativeLengths.back());
-            const float eps = 0.001f;
-
-            glm::vec3 p1 = evaluateNormalized(glm::clamp(u - eps, 0.0f, 1.0f));
-            glm::vec3 p2 = evaluateNormalized(glm::clamp(u + eps, 0.0f, 1.0f));
-
-            glm::vec3 tangent = p2 - p1;
-            return glm::length(tangent) > 1e-6f ? glm::normalize(tangent) : glm::vec3(0, 0, 1);
-        }
-
-        float normalizedToArcLength(float u) override {
-            return u * (cumulativeLengths.empty() ? 0.0f : cumulativeLengths.back());
-        }
-
-        float arcLengthToNormalized(float s) override {
-            return cumulativeLengths.empty() ? 0.0f : s / cumulativeLengths.back();
-        }
-
-        float normalizedInSegment(float s) override {
-            size_t seg = getSegmentAtLength(s);
-            if (seg >= segmentLengths.size()) return 0.0f;
-
-            float segStart = (seg == 0) ? 0.0f : cumulativeLengths[seg - 1];
-            float segLength = segmentLengths[seg];
-
-            return (segLength > 1e-6f) ? (s - segStart) / segLength : 0.0f;
         }
 
         // Control point interface
-        glm::vec3 getControlPoint(size_t i) override {
-            return (i < controlPoints.size()) ? controlPoints[i] : glm::vec3(0.0f);
-        }
-
-        size_t getNumControlPoints() override {
+        size_t getNumControlPoints() const override {
             return controlPoints.size();
         }
 
+        glm::vec3 getControlPoint(size_t i) const override {
+            return i < controlPoints.size() ? controlPoints[i] : glm::vec3(0.0f);
+        }
+
         void setControlPoint(size_t i, glm::vec3 value) override {
-            if (i < controlPoints.size()) {
-                controlPoints[i] = value;
+            if (i >= controlPoints.size()) return;
+            controlPoints[i] = value;
+            cachedLength = -1.0f;
+        }
+
+        void appendControlPoint() override {
+            glm::vec3 newControlPoint(1.0f, 0.0f, 0.0f); // Default position
+            if (controlPoints.size() >= 2) {
+                glm::vec3 forward = controlPoints.back() - controlPoints[controlPoints.size() - 2];
+                newControlPoint = controlPoints.back() + forward;
             }
+            appendControlPoint(newControlPoint);
         }
 
         void appendControlPoint(glm::vec3 value) override {
             controlPoints.push_back(value);
             weights.push_back(1.0f);
             pinned.push_back(false);
+            cachedLength = -1.0f;
         }
 
-        void extendBack() override {
-            if (controlPoints.size() >= 2) {
-                glm::vec3 lastDir = controlPoints.back() - controlPoints[controlPoints.size() - 2];
-                appendControlPoint(controlPoints.back() + lastDir);
-            }
-            else {
-                appendControlPoint(glm::vec3(1.0f, 0.0f, 0.0f));
-            }
-        }
-
-        void removeBack() override {
+        void removeControlPoint() override {
             if (!controlPoints.empty()) {
-                controlPoints.pop_back();
-                if (!weights.empty()) weights.pop_back();
-                if (!pinned.empty()) pinned.pop_back();
+                removeControlPoint(controlPoints.size() - 1);
             }
         }
 
-        // Weight interface
-        float getWeight(int i) const override {
-            return (i >= 0 && i < weights.size()) ? weights[i] : 1.0f;
+        void removeControlPoint(size_t i) override {
+            if (i >= controlPoints.size()) return;
+
+            controlPoints.erase(controlPoints.begin() + i);
+            if (i < weights.size()) weights.erase(weights.begin() + i);
+            if (i < pinned.size()) pinned.erase(pinned.begin() + i);
+            cachedLength = -1.0f;
         }
 
-        void setWeight(int i, float w) override {
-            if (i >= 0 && i < weights.size()) {
-                weights[i] = w;
+        // NURBS-specific interface
+        float getWeight(size_t i) const override {
+            return i < weights.size() ? weights[i] : 1.0f;
+        }
+
+        void setWeight(size_t i, float weight) override {
+            if (i < weights.size()) {
+                weights[i] = weight;
+                cachedLength = -1.0f;
             }
         }
 
-        // Simplified pinning (for now just stores the value)
-        void setPinned(size_t i, bool isPinned) {
+        bool getPinned(size_t i) const override {
+            return i < pinned.size() ? pinned[i] : false;
+        }
+
+        void setPinned(size_t i, bool isPinned) override {
             if (i < pinned.size()) {
                 pinned[i] = isPinned;
+                generateKnots();
+                cachedLength = -1.0f;
             }
         }
 
-        bool getPinned(size_t i) const {
-            return (i < pinned.size()) ? pinned[i] : false;
+    private:
+        void generateKnots() {
+            if (controlPoints.empty()) return;
+
+
+            std::vector<float> parameterValues = { 0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f, 1.0f };
+            knots = parameterValues;
+            //int n = controlPoints.size();
+            //knots.clear();
+
+            //// Force linear for 2 points
+            //if (n <= 2) {
+            //    degree = 1;
+            //    knots = { 0.0f, 0.0f, 1.0f, 1.0f };
+            //    return;
+            //}
+
+            //// Determine degree
+            //degree = std::min(3, n - 1);
+            //if (degree < 1) degree = 1;
+
+            //// FIXED: Implement actual pinning
+            //std::vector<float> parameterValues;
+
+            //// Always pin first and last points (clamped curve)
+            //for (int rep = 0; rep <= degree; rep++) {
+            //    parameterValues.push_back(0.0f);
+            //}
+
+            //// Handle interior points
+            //int numInterior = n - 2; // Exclude first and last
+            //for (int i = 1; i <= numInterior; i++) {
+            //    float t = (float)i / (numInterior + 1);
+
+            //    // Check if this control point should be pinned
+            //    if (i < pinned.size() && pinned[i]) {
+            //        // Pinned: repeat the knot 'degree' times
+            //        for (int rep = 0; rep < degree; rep++) {
+            //            parameterValues.push_back(t);
+            //        }
+            //    }
+            //    else {
+            //        // Not pinned: single knot
+            //        parameterValues.push_back(t);
+            //    }
+            //}
+
+            //// Always pin last point
+            //for (int rep = 0; rep <= degree; rep++) {
+            //    parameterValues.push_back(1.0f);
+            //}
+
+            //knots = parameterValues;
         }
 
-        // Not implemented in this clean version
-        glm::mat4 evaluateFrenet(float s, const std::vector<float>& roll) override {
-            return glm::identity<glm::mat4>();
+
+
+        float basisFunction(int i, int p, float u) const {
+            // Bounds checking
+            if (i < 0 || i >= knots.size() - p - 1) {
+                return 0.0f;
+            }
+
+            if (p == 0) {
+                // Handle boundary case for u = 1.0
+                if (u == 1.0f && i == knots.size() - p - 2) {
+                    return 1.0f;
+                }
+                return (u >= knots[i] && u < knots[i + 1]) ? 1.0f : 0.0f;
+            }
+
+            float left = 0.0f, right = 0.0f;
+
+            // Check bounds for recursive calls
+            if (i + p < knots.size()) {
+                float denom1 = knots[i + p] - knots[i];
+                if (denom1 > 1e-7f) {
+                    left = (u - knots[i]) / denom1 * basisFunction(i, p - 1, u);
+                }
+            }
+
+            if (i + p + 1 < knots.size()) {
+                float denom2 = knots[i + p + 1] - knots[i + 1];
+                if (denom2 > 1e-7f) {
+                    right = (knots[i + p + 1] - u) / denom2 * basisFunction(i + 1, p - 1, u);
+                }
+            }
+
+            return left + right;
+        }
+
+        float calculateLength() const {
+            const int samples = 200;
+            float totalLength = 0.0f;
+            glm::vec3 prevPoint = const_cast<NURBSCurve*>(this)->evaluate(0.0f);
+
+            for (int i = 1; i <= samples; i++) {
+                float u = (float)i / samples;
+                glm::vec3 currentPoint = const_cast<NURBSCurve*>(this)->evaluate(u);
+                float segLength = glm::distance(prevPoint, currentPoint);
+
+                if (std::isnan(segLength) || std::isinf(segLength)) {
+                    std::cerr << "Invalid segment length at u=" << u << std::endl;
+                    continue;
+                }
+
+                totalLength += segLength;
+                prevPoint = currentPoint;
+            }
+            return totalLength;
         }
     };
 } // namespace osp

@@ -18,10 +18,10 @@ struct NodeEditor {
 	Track* track = nullptr;
 	TrackMesh* trackMesh = nullptr;
 
-	Track::Node* hovered = nullptr;
+	Track::TrackNode* hovered = nullptr;
 	float hoveringRadius = 70.0f;
 
-	Track::Node* selected = nullptr;
+	Track::TrackNode* selected = nullptr;
 
 	int screenSize[2] = { 0, 0 };
 
@@ -40,7 +40,7 @@ struct NodeEditor {
 		ImDrawList* drawList = ImGui::GetForegroundDrawList();
 		size_t numNodes = track->nodes.size();
 		for (size_t i = 0; i < numNodes; i++) {
-			Track::Node& node = track->nodes[i];
+			Track::TrackNode& node = track->nodes[i];
 			glm::vec3 controlPoint = node.position;
 			glm::vec2 screenPos = camera->projectPositionToScreen(controlPoint, screenSize[0], screenSize[1]);
 			if (screenPos.x == -1.0f || screenPos.y == -1.0f) {
@@ -72,7 +72,7 @@ struct NodeEditor {
 	{
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
 		{
-			Track::Node* prevSelected = selected;
+			Track::TrackNode* prevSelected = selected;
 			if (track && !track->nodes.empty())
 			{
 				track->addNextSegment();
@@ -141,7 +141,7 @@ struct NodeEditor {
 		ImGui::Begin("Nodes");
 		bool wasSelectedEnumerated = false;
 		for (size_t i = 0; i < track->nodes.size(); i++) {
-			Track::Node& node = track->nodes[i];
+			Track::TrackNode& node = track->nodes[i];
 
 			ImDrawList* drawList = ImGui::GetBackgroundDrawList();
 			glm::vec3 controlPoint = node.position;

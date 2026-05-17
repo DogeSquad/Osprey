@@ -55,11 +55,11 @@ namespace osp {
 			calculateLength();
 		}
 
-		float totalLength() const override {
+		float length() const override {
 			return cumulativeLengths.empty() ? 0.0f : cumulativeLengths.back();
 		}
 
-		void extendBack() override
+		void appendControlPoint() override
 		{
 			float segmentLength = segmentLengths.back();
 			glm::vec3 newControlPoint = controlPoints.back() + segmentLength * glm::normalize(controlTangents.back());
@@ -68,7 +68,7 @@ namespace osp {
 			cumulativeLengths.push_back(cumulativeLengths.back() + segmentLength);
 			segmentLengths.push_back(segmentLength);
 		}
-		void removeBack() override
+		void removeControlPoint() override
 		{
 			controlPoints.pop_back();
 			controlTangents.pop_back();
